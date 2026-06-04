@@ -1,32 +1,45 @@
 #!/usr/bin/env bash
 #
-# EcoLogits status line for Claude Code
-# Shows the estimated environmental impact (CO₂eq + water) of the current
-# session's generated tokens, using the public EcoLogits API.
+# EcoLogits status line for Claude Code  (additive / wrapper)
+#
+# This is designed to ADD a line to your existing status line, not replace it.
+# It runs your previously configured status line first (saved by install.sh to
+# ~/.claude/ecologits-base.cmd), prints its output unchanged, then appends one
+# extra line with the estimated environmental impact (CO₂eq + water) of the
+# current session's generated tokens, via the public EcoLogits API.
+#
+# If no base status line is configured, it just prints the eco line on its own.
 #
 # Repo: https://github.com/<your-user>/ecologits-statusline
 # Powered by EcoLogits — https://ecologits.ai  •  https://api.ecologits.ai
 #
-# Configurable via environment variables (set them in your shell profile):
-#   ECOLOGITS_API    estimations endpoint   (default: https://api.ecologits.ai/v1beta/estimations)
-#   ECOLOGITS_MODEL  model sent to the API  (default: claude-opus-4-6 — highest the public API serves)
-#   ECOLOGITS_ZONE   electricity mix zone   (default: WOR — world average; e.g. USA, FRA)
+# Configurable via environment variables:
+#   ECOLOGITS_API       estimations endpoint   (default: https://api.ecologits.ai/v1beta/estimations)
+#   ECOLOGITS_MODEL     model sent to the API  (default: claude-opus-4-6)
+#   ECOLOGITS_ZONE      electricity mix zone   (default: WOR — world average; e.g. USA, FRA)
+#   ECOLOGITS_BASE_CMD  base status-line command to wrap (overrides the saved file)
 #
 # Dependencies: bash, jq, curl
 
 input=$(cat)
 
-# ---- Status-line input -----------------------------------------------------
-MODEL=$(echo "$input" | jq -r '.model.display_name // "Claude"')
-DIR=$(echo "$input" | jq -r '.workspace.current_dir // .cwd // empty')
-TRANSCRIPT=$(echo "$input" | jq -r '.transcript_path // empty')
+SELF_MARKER="ecologits-statusline.sh"   # guard against wrapping ourselves
+BASE_FILE="$HOME/.claude/ecologits-base.cmd"
+
 SESSION=$(echo "$input" | jq -r '.session_id // "default"')
+TRANSCRIPT=$(echo "$input" | jq -r '.transcript_path // empty')
 
-CYAN='\033[36m'; GRAY='\033[90m'; RESET='\033[0m'
+GRAY='\033[90m'; RESET='\033[0m'
 
-BRANCH=""
-if [ -n "$DIR" ] && git -C "$DIR" rev-parse --git-dir >/dev/null 2>&1; then
-  BRANCH=" | 🌿 $(git -C "$DIR" branch --show-current 2>/dev/null)"
+# ---- Run the wrapped (existing) status line first, if any ------------------
+BASE_CMD="${ECOLOGITS_BASE_CMD:-}"
+if [ -z "$BASE_CMD" ] && [ -s "$BASE_FILE" ]; then
+  BASE_CMD=$(cat "$BASE_FILE")
+fi
+BASE_OUT=""
+if [ -n "$BASE_CMD" ] && [[ "$BASE_CMD" != *"$SELF_MARKER"* ]]; then
+  # Feed the same stdin JSON to the wrapped status line and capture its output.
+  BASE_OUT=$(printf '%s' "$input" | bash -c "$BASE_CMD" 2>/dev/null)
 fi
 
 # ---- EcoLogits environmental-impact counter --------------------------------
@@ -101,6 +114,6 @@ else
   ECO_LINE="🤖 ${ECO_MODEL} | …"
 fi
 
-# ---- Render ----------------------------------------------------------------
-echo -e "${CYAN}[$MODEL]${RESET} 📁 ${DIR##*/}$BRANCH"
-echo -e "${GRAY}${ECO_LINE}${RESET}"
+# ---- Render: existing status line unchanged, then the eco line below -------
+[ -n "$BASE_OUT" ] && printf '%s\n' "$BASE_OUT"
+printf '%b\n' "${GRAY}${ECO_LINE}${RESET}"
