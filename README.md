@@ -1,20 +1,20 @@
 # EcoLogits status line for Claude Code
 
 A [Claude Code](https://claude.com/claude-code) status line add-on that estimates
-the **environmental impact of your session** — greenhouse-gas emissions (kgCO₂eq)
-and freshwater consumption (L) — from the tokens Claude generates, using the
-public [EcoLogits API](https://api.ecologits.ai).
+the **environmental impact of your session** — energy use (kWh), greenhouse-gas
+emissions (kgCO₂eq) and freshwater consumption (L) — from the tokens Claude
+generates, using the public [EcoLogits API](https://api.ecologits.ai).
 
 It's **additive**: it keeps your existing status line and adds one line below it.
 
 ```
 your existing status line, unchanged…
-🤖 claude-opus-4-6 | 🔥 0.21 kgCO₂eq | 💧 3.1 L   ← added by EcoLogits
+🤖 claude-opus-4-6 | ⚡ 0.4 kWh | 🔥 0.21 kgCO₂eq | 💧 3.1 L   ← added by EcoLogits
 ```
 
 The impact grows live as you use Claude Code. Units auto-scale
-(mg → g → kg CO₂eq, mL → L water) so the numbers stay readable from the first
-token onward.
+(mWh → Wh → kWh energy, mg → g → kg CO₂eq, mL → L water) so the numbers stay
+readable from the first token onward.
 
 ## How it works
 
@@ -26,7 +26,8 @@ token onward.
 - Sums `output_tokens` across the **current session's** transcript (resets each
   session).
 - Sends that total to `POST /v1beta/estimations` on the public EcoLogits API and
-  shows the **midpoint** of the returned `gwp` (CO₂eq) and `wcf` (water) ranges.
+  shows the **midpoint** of the returned `energy` (kWh), `gwp` (CO₂eq) and `wcf`
+  (water) ranges.
 - **Never blocks your terminal:** each render prints instantly from a small
   cache in `~/.claude/ecologits-cache/`. A refresh runs in the background **only
   when your token count grows** — idle sessions make zero API calls. If a

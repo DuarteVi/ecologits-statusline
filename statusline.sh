@@ -47,7 +47,7 @@ ECO_API="${ECOLOGITS_API:-https://api.ecologits.ai/v1beta/estimations}"
 ECO_MODEL="${ECOLOGITS_MODEL:-claude-opus-4-6}"
 ECO_ZONE="${ECOLOGITS_ZONE:-WOR}"
 ECO_DIR="$HOME/.claude/ecologits-cache"
-ECO_CACHE="$ECO_DIR/$SESSION.json"     # holds: "<tokens> <gwp_kg> <wcf_L>"
+ECO_CACHE="$ECO_DIR/$SESSION.json"     # holds: "<tokens> <gwp_kg> <wcf_L> <energy_kWh>"
 ECO_LOCK="$ECO_DIR/$SESSION.inflight"
 mkdir -p "$ECO_DIR" 2>/dev/null
 
@@ -59,16 +59,17 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
 fi
 
 # Read cached impact values, if any.
-CACHED_TOKENS=-1; GWP=""; WCF=""
+CACHED_TOKENS=-1; GWP=""; WCF=""; ENERGY=""
 if [ -f "$ECO_CACHE" ]; then
-  read -r CACHED_TOKENS GWP WCF < "$ECO_CACHE" 2>/dev/null
+  read -r CACHED_TOKENS GWP WCF ENERGY < "$ECO_CACHE" 2>/dev/null
   [ -z "$CACHED_TOKENS" ] && CACHED_TOKENS=-1
 fi
 
-# Refresh in the background only when output tokens have grown, and not when a
-# fetch for this exact token count is already in flight. No tokens / idle = no
-# API call. The status line itself never blocks on the network.
-if [ "$TOKENS" -gt 0 ] && [ "$TOKENS" != "$CACHED_TOKENS" ]; then
+# Refresh in the background when output tokens have grown (or the cache predates
+# the energy field), and not when a fetch for this exact token count is already
+# in flight. No tokens / idle = no API call. The status line never blocks on
+# the network.
+if [ "$TOKENS" -gt 0 ] && { [ "$TOKENS" != "$CACHED_TOKENS" ] || [ -z "$ENERGY" ]; }; then
   INFLIGHT=""
   [ -f "$ECO_LOCK" ] && INFLIGHT=$(cat "$ECO_LOCK" 2>/dev/null)
   if [ "$INFLIGHT" != "$TOKENS" ]; then
@@ -79,7 +80,7 @@ if [ "$TOKENS" -gt 0 ] && [ "$TOKENS" != "$CACHED_TOKENS" ]; then
         -d "{\"provider\":\"anthropic\",\"model_name\":\"$ECO_MODEL\",\"output_token_count\":$TOKENS,\"electricity_mix_zone\":\"$ECO_ZONE\"}")
       LINE=$(echo "$RESP" | jq -r '
         if .impacts.gwp.value then
-          "\(.impacts.gwp.value.min + .impacts.gwp.value.max | . / 2) \(.impacts.wcf.value.min + .impacts.wcf.value.max | . / 2)"
+          "\(.impacts.gwp.value.min + .impacts.gwp.value.max | . / 2) \(.impacts.wcf.value.min + .impacts.wcf.value.max | . / 2) \(.impacts.energy.value.min + .impacts.energy.value.max | . / 2)"
         else empty end' 2>/dev/null)
       # Only overwrite the cache on a valid response, so a failed/offline
       # refresh keeps the last-known value instead of blanking it.
@@ -107,9 +108,16 @@ fmt_wcf() {  # litres -> mL / L
     else { ml=v*1000; if (ml>=10) printf "%.0f mL", ml; else if (ml>=1) printf "%.1f mL", ml; else printf "%.2f mL", ml; }
   }'
 }
+fmt_energy() {  # kWh -> mWh / Wh / kWh
+  awk -v v="$1" 'BEGIN{
+    if (v=="" || v+0<=0) { print "—"; exit }
+    if (v>=1) printf "%.2f kWh", v;
+    else { wh=v*1000; if (wh>=10) printf "%.0f Wh", wh; else if (wh>=1) printf "%.1f Wh", wh; else printf "%.0f mWh", v*1000000; }
+  }'
+}
 
-if [ -n "$GWP" ] && [ -n "$WCF" ]; then
-  ECO_LINE="🤖 ${ECO_MODEL} | 🔥 $(fmt_gwp "$GWP") | 💧 $(fmt_wcf "$WCF")"
+if [ -n "$GWP" ] && [ -n "$WCF" ] && [ -n "$ENERGY" ]; then
+  ECO_LINE="🤖 ${ECO_MODEL} | ⚡ $(fmt_energy "$ENERGY") | 🔥 $(fmt_gwp "$GWP") | 💧 $(fmt_wcf "$WCF")"
 else
   ECO_LINE="🤖 ${ECO_MODEL} | …"
 fi
