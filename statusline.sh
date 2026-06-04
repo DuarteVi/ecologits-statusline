@@ -117,7 +117,7 @@ fmt_energy() {  # kWh -> mWh / Wh / kWh
 }
 
 if [ -n "$GWP" ] && [ -n "$WCF" ] && [ -n "$ENERGY" ]; then
-  ECO_LINE="🤖 ${ECO_MODEL} | ⚡ $(fmt_energy "$ENERGY") | 🔥 $(fmt_gwp "$GWP") | 💧 $(fmt_wcf "$WCF")"
+  ECO_LINE="🤖 ${ECO_MODEL} | 🔥 $(fmt_gwp "$GWP") | 💧 $(fmt_wcf "$WCF") | ⚡️ $(fmt_energy "$ENERGY")"
 else
   ECO_LINE="🤖 ${ECO_MODEL} | …"
 fi

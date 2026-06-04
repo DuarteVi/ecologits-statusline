@@ -9,7 +9,7 @@ It's **additive**: it keeps your existing status line and adds one line below it
 
 ```
 your existing status line, unchanged…
-🤖 claude-opus-4-6 | ⚡ 0.4 kWh | 🔥 0.21 kgCO₂eq | 💧 3.1 L   ← added by EcoLogits
+🤖 claude-opus-4-6 | 🔥 0.21 kgCO₂eq | 💧 3.1 L | ⚡️ 0.4 kWh  ← added by EcoLogits
 ```
 
 The impact grows live as you use Claude Code. Units auto-scale
