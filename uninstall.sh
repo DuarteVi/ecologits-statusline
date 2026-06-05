@@ -9,6 +9,7 @@ set -euo pipefail
 
 CLAUDE_DIR="$HOME/.claude"
 DEST="$CLAUDE_DIR/ecologits-statusline.sh"
+CONFIG_DEST="$CLAUDE_DIR/ecologits.config.sh"
 SETTINGS="$CLAUDE_DIR/settings.json"
 BASE_FILE="$CLAUDE_DIR/ecologits-wrapped-statusline.txt"
 CACHE_DIR="$CLAUDE_DIR/ecologits-cache"
@@ -51,9 +52,9 @@ else
 fi
 
 # 2. Remove EcoLogits files -------------------------------------------------
-rm -f "$DEST" "$BASE_FILE"
+rm -f "$DEST" "$CONFIG_DEST" "$BASE_FILE"
 rm -rf "$CACHE_DIR"
-ok "Removed wrapper script, saved base command, and cache directory"
+ok "Removed wrapper script, config, saved base command, and cache directory"
 
 echo
 ok "Done. EcoLogits status line uninstalled."

@@ -4,20 +4,22 @@
 #
 # This is designed to ADD a line to your existing status line, not replace it.
 # It runs your previously configured status line first (saved by install.sh to
-# ~/.claude/ecologits-wrapped-statusline.txt), prints its output unchanged, then appends one
-# extra line with the estimated environmental impact (CO₂eq + water) of the
-# current session's generated tokens, via the public EcoLogits API.
+# ~/.claude/ecologits-wrapped-statusline.txt), prints its output unchanged, then
+# appends one extra line with the estimated environmental impact of the current
+# session's generated tokens, via the public EcoLogits API.
 #
 # If no base status line is configured, it just prints the eco line on its own.
 #
 # Repo: https://github.com/<your-user>/ecologits-statusline
 # Powered by EcoLogits — https://ecologits.ai  •  https://api.ecologits.ai
 #
-# Configurable via environment variables:
-#   ECOLOGITS_API       estimations endpoint   (default: https://api.ecologits.ai/v1beta/estimations)
-#   ECOLOGITS_MODEL     model sent to the API  (default: claude-opus-4-6)
-#   ECOLOGITS_ZONE      electricity mix zone   (default: WOR — world average; e.g. USA, FRA)
-#   ECOLOGITS_BASE_CMD  base status-line command to wrap (overrides the saved file)
+# Configuration: edit ~/.claude/ecologits.config.sh (sourced below). Each value
+# can also be overridden by an exported environment variable of the same name:
+#   ECOLOGITS_MODEL     model sent to the API   (default: claude-opus-4-6)
+#   ECOLOGITS_ZONE      electricity-mix zone for the server location (default: WOR)
+#   ECOLOGITS_METRICS   impacts to display      (default: "gwp wcf energy")
+#   ECOLOGITS_API       estimations endpoint    (default: api.ecologits.ai)
+#   ECOLOGITS_BASE_CMD  base status-line command to wrap (overrides saved file)
 #
 # Dependencies: bash, jq, curl
 
@@ -25,6 +27,11 @@ input=$(cat)
 
 SELF_MARKER="ecologits-statusline.sh"   # guard against wrapping ourselves
 BASE_FILE="$HOME/.claude/ecologits-wrapped-statusline.txt"
+CONFIG_FILE="$HOME/.claude/ecologits.config.sh"
+
+# Load user configuration (real exported env vars still take precedence,
+# because the config file uses `: "${VAR:=default}"` assignments).
+[ -f "$CONFIG_FILE" ] && . "$CONFIG_FILE"
 
 SESSION=$(echo "$input" | jq -r '.session_id // "default"')
 TRANSCRIPT=$(echo "$input" | jq -r '.transcript_path // empty')
@@ -46,8 +53,10 @@ fi
 ECO_API="${ECOLOGITS_API:-https://api.ecologits.ai/v1beta/estimations}"
 ECO_MODEL="${ECOLOGITS_MODEL:-claude-opus-4-6}"
 ECO_ZONE="${ECOLOGITS_ZONE:-WOR}"
+ECO_METRICS="${ECOLOGITS_METRICS:-gwp wcf energy}"
 ECO_DIR="$HOME/.claude/ecologits-cache"
-ECO_CACHE="$ECO_DIR/$SESSION.json"     # holds: "<tokens> <gwp_kg> <wcf_L> <energy_kWh>"
+# Cache holds: "<tokens> <gwp_kg> <wcf_L> <energy_kWh> <adpe_kg> <pe_MJ>"
+ECO_CACHE="$ECO_DIR/$SESSION.json"
 ECO_LOCK="$ECO_DIR/$SESSION.inflight"
 mkdir -p "$ECO_DIR" 2>/dev/null
 
@@ -59,17 +68,22 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
 fi
 
 # Read cached impact values, if any.
-CACHED_TOKENS=-1; GWP=""; WCF=""; ENERGY=""
+CACHED_TOKENS=-1; GWP=""; WCF=""; ENERGY=""; ADPE=""; PE=""
 if [ -f "$ECO_CACHE" ]; then
-  read -r CACHED_TOKENS GWP WCF ENERGY < "$ECO_CACHE" 2>/dev/null
+  read -r CACHED_TOKENS GWP WCF ENERGY ADPE PE < "$ECO_CACHE" 2>/dev/null
   [ -z "$CACHED_TOKENS" ] && CACHED_TOKENS=-1
 fi
 
-# Refresh in the background when output tokens have grown (or the cache predates
-# the energy field), and not when a fetch for this exact token count is already
-# in flight. No tokens / idle = no API call. The status line never blocks on
-# the network.
-if [ "$TOKENS" -gt 0 ] && { [ "$TOKENS" != "$CACHED_TOKENS" ] || [ -z "$ENERGY" ]; }; then
+# Refresh in the background when output tokens have grown, or when the cache is
+# missing any metric (e.g. written by an older version), and not when a fetch
+# for this exact token count is already in flight. No tokens / idle = no API
+# call. The status line never blocks on the network.
+NEED_REFRESH=0
+[ "$TOKENS" != "$CACHED_TOKENS" ] && NEED_REFRESH=1
+for v in "$GWP" "$WCF" "$ENERGY" "$ADPE" "$PE"; do
+  [ -z "$v" ] && NEED_REFRESH=1
+done
+if [ "$TOKENS" -gt 0 ] && [ "$NEED_REFRESH" -eq 1 ]; then
   INFLIGHT=""
   [ -f "$ECO_LOCK" ] && INFLIGHT=$(cat "$ECO_LOCK" 2>/dev/null)
   if [ "$INFLIGHT" != "$TOKENS" ]; then
@@ -79,8 +93,9 @@ if [ "$TOKENS" -gt 0 ] && { [ "$TOKENS" != "$CACHED_TOKENS" ] || [ -z "$ENERGY" 
         -H "Content-Type: application/json" \
         -d "{\"provider\":\"anthropic\",\"model_name\":\"$ECO_MODEL\",\"output_token_count\":$TOKENS,\"electricity_mix_zone\":\"$ECO_ZONE\"}")
       LINE=$(echo "$RESP" | jq -r '
+        def mid(x): (x.min + x.max) / 2;
         if .impacts.gwp.value then
-          "\(.impacts.gwp.value.min + .impacts.gwp.value.max | . / 2) \(.impacts.wcf.value.min + .impacts.wcf.value.max | . / 2) \(.impacts.energy.value.min + .impacts.energy.value.max | . / 2)"
+          "\(mid(.impacts.gwp.value)) \(mid(.impacts.wcf.value)) \(mid(.impacts.energy.value)) \(mid(.impacts.adpe.value)) \(mid(.impacts.pe.value))"
         else empty end' 2>/dev/null)
       # Only overwrite the cache on a valid response, so a failed/offline
       # refresh keeps the last-known value instead of blanking it.
@@ -92,7 +107,7 @@ if [ "$TOKENS" -gt 0 ] && { [ "$TOKENS" != "$CACHED_TOKENS" ] || [ -z "$ENERGY" 
   fi
 fi
 
-# Auto-scaling unit formatters.
+# Auto-scaling unit formatters (one per metric).
 fmt_gwp() {  # kgCO₂eq -> mg / g / kg
   awk -v v="$1" 'BEGIN{
     if (v=="" || v+0<=0) { print "—"; exit }
@@ -115,9 +130,55 @@ fmt_energy() {  # kWh -> mWh / Wh / kWh
     else { wh=v*1000; if (wh>=10) printf "%.0f Wh", wh; else if (wh>=1) printf "%.1f Wh", wh; else printf "%.0f mWh", v*1000000; }
   }'
 }
+fmt_adpe() {  # kgSbeq -> µg / mg / g / kg
+  awk -v v="$1" 'BEGIN{
+    if (v=="" || v+0<=0) { print "—"; exit }
+    if (v>=1)            printf "%.2f kgSbeq", v;
+    else if (v>=0.001)   printf "%.1f gSbeq", v*1000;
+    else if (v>=0.000001){ mg=v*1000000; if (mg>=10) printf "%.0f mgSbeq", mg; else printf "%.1f mgSbeq", mg; }
+    else                 printf "%.0f µgSbeq", v*1000000000;
+  }'
+}
+fmt_pe() {  # MJ -> J / kJ / MJ
+  awk -v v="$1" 'BEGIN{
+    if (v=="" || v+0<=0) { print "—"; exit }
+    if (v>=1)          printf "%.2f MJ", v;
+    else if (v>=0.001) { kj=v*1000; if (kj>=10) printf "%.0f kJ", kj; else printf "%.1f kJ", kj; }
+    else               printf "%.0f J", v*1000000;
+  }'
+}
 
-if [ -n "$GWP" ] && [ -n "$WCF" ] && [ -n "$ENERGY" ]; then
-  ECO_LINE="🤖 ${ECO_MODEL} | 🔥 $(fmt_gwp "$GWP") | 💧 $(fmt_wcf "$WCF") | ⚡️ $(fmt_energy "$ENERGY")"
+# Map a metric key to its cached value, emoji, and formatter.
+metric_value() { case "$1" in
+  gwp) printf '%s' "$GWP";; wcf) printf '%s' "$WCF";; energy) printf '%s' "$ENERGY";;
+  adpe) printf '%s' "$ADPE";; pe) printf '%s' "$PE";; esac; }
+render_metric() { case "$1" in
+  gwp)    printf '🔥 %s' "$(fmt_gwp "$GWP")";;
+  wcf)    printf '💧 %s' "$(fmt_wcf "$WCF")";;
+  energy) printf '⚡️ %s' "$(fmt_energy "$ENERGY")";;
+  adpe)   printf '⛏️ %s' "$(fmt_adpe "$ADPE")";;
+  pe)     printf '🛢️ %s' "$(fmt_pe "$PE")";;
+esac; }
+
+# Build the eco line from the selected metrics, in order. Show "…" until every
+# selected metric has a cached value.
+READY=1
+SELECTED=()
+for key in $ECO_METRICS; do
+  case "$key" in
+    gwp|wcf|energy|adpe|pe) ;;
+    *) continue;;            # ignore unknown keys
+  esac
+  SELECTED+=("$key")
+  [ -z "$(metric_value "$key")" ] && READY=0
+done
+[ "${#SELECTED[@]}" -eq 0 ] && { SELECTED=(gwp wcf energy); READY=0; }
+
+if [ "$READY" -eq 1 ]; then
+  ECO_LINE="🤖 ${ECO_MODEL}"
+  for key in "${SELECTED[@]}"; do
+    ECO_LINE="$ECO_LINE | $(render_metric "$key")"
+  done
 else
   ECO_LINE="🤖 ${ECO_MODEL} | …"
 fi

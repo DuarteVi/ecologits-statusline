@@ -47,11 +47,13 @@ cd ecologits-statusline
 ./install.sh
 ```
 
-The installer copies the wrapper to `~/.claude/ecologits-statusline.sh`, saves
-your current status line command to `~/.claude/ecologits-wrapped-statusline.txt`, and points
-the `statusLine` entry in `~/.claude/settings.json` at the wrapper (backing up
-the file first). Start a new session — your existing status line stays, with
-`🤖 claude-opus-4-6 | …` added below until the first response lands.
+The installer copies the wrapper to `~/.claude/ecologits-statusline.sh`, drops a
+config file at `~/.claude/ecologits.config.sh` (only if you don't already have
+one), saves your current status line command to
+`~/.claude/ecologits-wrapped-statusline.txt`, and points the `statusLine` entry
+in `~/.claude/settings.json` at the wrapper (backing up the file first). Start a
+new session — your existing status line stays, with `🤖 claude-opus-4-6 | …`
+added below until the first response lands.
 
 Re-running the installer is safe: it detects it's already installed and won't
 double-wrap.
@@ -61,6 +63,8 @@ double-wrap.
 ```bash
 cp ecologits-statusline.sh ~/.claude/ecologits-statusline.sh
 chmod +x ~/.claude/ecologits-statusline.sh
+# Config file (skip the cp if you want to keep an existing one):
+cp ecologits.config.sh ~/.claude/ecologits.config.sh
 # Save your existing status line command so the wrapper can run it (skip if none):
 jq -r '.statusLine.command' ~/.claude/settings.json > ~/.claude/ecologits-wrapped-statusline.txt
 ```
@@ -83,14 +87,56 @@ Then point `statusLine` at the wrapper in `~/.claude/settings.json`:
 
 ## Configuration
 
-Set these environment variables (e.g. in your shell profile) to customize:
+Edit **`~/.claude/ecologits.config.sh`** — it's sourced on every render. The two
+things most people change: the **model** (input) and **which impacts to show**
+(output).
+
+```bash
+# INPUT — the Claude model to estimate
+: "${ECOLOGITS_MODEL:=claude-opus-4-6}"
+
+# OUTPUT — impacts to display, in order (space-separated)
+: "${ECOLOGITS_METRICS:=gwp wcf energy}"
+```
+
+### Input — model
+
+Set `ECOLOGITS_MODEL` to the model you actually use (default `claude-opus-4-6`).
+Valid values come from the public endpoint
+[`/v1beta/models/anthropic`](https://api.ecologits.ai/v1beta/models/anthropic):
+
+```
+claude-opus-4-6    claude-opus-4-5    claude-opus-4-1    claude-opus-4-0
+claude-sonnet-4-6  claude-sonnet-4-5  claude-sonnet-4-0
+claude-haiku-4-5
+```
+
+### Output — metrics
+
+`ECOLOGITS_METRICS` is a space-separated, ordered list. Default
+`gwp wcf energy` renders `🔥 … gCO₂eq | 💧 … mL | ⚡️ … Wh`. Available metrics
+([API docs](https://api.ecologits.ai/docs#)):
+
+| key      | emoji | impact                            | unit (auto-scaled) |
+| -------- | :---: | --------------------------------- | ------------------ |
+| `gwp`    |  🔥   | Greenhouse-gas emissions          | mg/g/kg CO₂eq      |
+| `wcf`    |  💧   | Fresh water consumed              | mL/L               |
+| `energy` |  ⚡️   | Energy consumed by the request    | mWh/Wh/kWh         |
+| `adpe`   |  ⛏️   | Mineral & metal resource depletion| µg/mg/g Sbeq       |
+| `pe`     |  🛢️   | Total primary energy consumed     | J/kJ/MJ            |
+
+E.g. `ECOLOGITS_METRICS="energy gwp wcf adpe pe"` shows all five.
+
+### Other settings
 
 | Variable          | Default                                          | Description                                   |
 | ----------------- | ------------------------------------------------ | --------------------------------------------- |
-| `ECOLOGITS_MODEL` | `claude-opus-4-6`                                | Model name sent to the API                    |
-| `ECOLOGITS_ZONE`  | `WOR`                                            | Electricity-mix zone (ISO-3166 alpha-3, e.g. `USA`, `FRA`) |
+| `ECOLOGITS_ZONE`  | `WOR`                                            | Electricity-mix zone for the server location — where the data center sits (ISO-3166 alpha-3, e.g. `USA`, `FRA`) |
 | `ECOLOGITS_API`   | `https://api.ecologits.ai/v1beta/estimations`    | Estimations endpoint (point to your own deployment if you self-host) |
 | `ECOLOGITS_BASE_CMD` | _(contents of `~/.claude/ecologits-wrapped-statusline.txt`)_ | Base status-line command to run before the eco line; overrides the saved file |
+
+> Every setting can also be supplied as a real exported environment variable,
+> which takes precedence over the config file.
 
 ## Caveats
 
@@ -127,7 +173,8 @@ if [ -n "$BASE" ]; then
 else
   jq 'del(.statusLine)' ~/.claude/settings.json > ~/.claude/settings.json.tmp && mv ~/.claude/settings.json.tmp ~/.claude/settings.json
 fi
-rm -f ~/.claude/ecologits-statusline.sh ~/.claude/ecologits-wrapped-statusline.txt
+rm -f ~/.claude/ecologits-statusline.sh ~/.claude/ecologits.config.sh \
+      ~/.claude/ecologits-wrapped-statusline.txt
 rm -rf ~/.claude/ecologits-cache
 ```
 

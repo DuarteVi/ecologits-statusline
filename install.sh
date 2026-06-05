@@ -12,6 +12,7 @@ set -euo pipefail
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="$HOME/.claude"
 DEST="$CLAUDE_DIR/ecologits-statusline.sh"
+CONFIG_DEST="$CLAUDE_DIR/ecologits.config.sh"
 SETTINGS="$CLAUDE_DIR/settings.json"
 BASE_FILE="$CLAUDE_DIR/ecologits-wrapped-statusline.txt"
 SELF_MARKER="ecologits-statusline.sh"
@@ -37,6 +38,14 @@ mkdir -p "$CLAUDE_DIR/ecologits-cache"
 cp "$SRC_DIR/ecologits-statusline.sh" "$DEST"
 chmod +x "$DEST"
 ok "Installed wrapper script -> $DEST"
+
+# Install the config file, but never clobber an existing one.
+if [ -f "$CONFIG_DEST" ]; then
+  info "Keeping your existing config -> $CONFIG_DEST"
+else
+  cp "$SRC_DIR/ecologits.config.sh" "$CONFIG_DEST"
+  ok "Installed config -> $CONFIG_DEST (edit to pick model & metrics)"
+fi
 
 # 3. Decide what to wrap, then point statusLine at the wrapper --------------
 NEW_STATUSLINE=$(jq -n --arg cmd "$DEST" '{type: "command", command: $cmd, padding: 2}')
@@ -77,5 +86,5 @@ fi
 echo
 ok "Done. Open a new Claude Code session (or wait for the next render)."
 echo "  Your existing status line is preserved; the eco line is added below it."
-echo "  It shows '…' until the first response, then live CO₂eq + water."
-echo "  Customize via env vars: ECOLOGITS_MODEL, ECOLOGITS_ZONE, ECOLOGITS_API"
+echo "  It shows '…' until the first response, then live impact figures."
+echo "  Customize the model & displayed metrics in: $CONFIG_DEST"
