@@ -23,10 +23,14 @@ info() { printf '\033[36m▸ %s\033[0m\n' "$1"; }
 ok()   { printf '\033[32m✓ %s\033[0m\n' "$1"; }
 err()  { printf '\033[31m✗ %s\033[0m\n' "$1" >&2; }
 
-# The exact block users paste into their own statusline.sh.
+# The exact block users paste into their own statusline.sh. Inline model:
+# capture the bar into a variable, then drop ${ECOLOGITS_LINE} into your line.
 print_snippet() {
   printf '\033[90m# ─── EcoLogits impact bar — https://ecologits.ai ───\033[0m\n'
-  printf '\033[90mprintf '\''%%s'\'' "$input" | ~/.claude/ecologits-bar.sh\033[0m\n'
+  printf '\033[90m# 1) After "input=$(cat)", capture the bar into a variable:\033[0m\n'
+  printf 'ECOLOGITS_LINE=$(printf '\''%%s'\'' "$input" | ~/.claude/ecologits-bar.sh)\n'
+  printf '\033[90m# 2) Then drop ${ECOLOGITS_LINE} anywhere in your own line, e.g.:\033[0m\n'
+  printf 'echo -e "...your status line... | ${ECOLOGITS_LINE}"\n'
 }
 
 # 1. Dependencies -----------------------------------------------------------
@@ -66,8 +70,9 @@ if [ -f "$SETTINGS" ]; then
 fi
 
 if [ "$existing_type" = "command" ] && [ -n "$existing_cmd" ]; then
-  info "You already have a status line. Add these two lines to your script,"
-  info "after it prints its own line (it must capture stdin via: input=\$(cat))."
+  info "You already have a status line. Add the capture line below to your"
+  info "script (it must capture stdin via: input=\$(cat)), then place"
+  info "\${ECOLOGITS_LINE} wherever you want the impact figures to appear."
 
   # If the command resolves to a script file we can name, point right at it.
   script_path="${existing_cmd%% *}"
@@ -87,11 +92,12 @@ else
     #!/usr/bin/env bash
     input=$(cat)
 
-    # (Optional) your own status line goes here, e.g.:
-    # echo "my prompt"
-
     # ─── EcoLogits impact bar — https://ecologits.ai ───
-    printf '%s' "$input" | ~/.claude/ecologits-bar.sh
+    # 1) Capture the impact bar into a variable:
+    ECOLOGITS_LINE=$(printf '%s' "$input" | ~/.claude/ecologits-bar.sh)
+
+    # 2) Place ${ECOLOGITS_LINE} anywhere in your own status line:
+    echo -e "my prompt | ${ECOLOGITS_LINE}"
 STARTER
   echo
   info "2) Make it executable:  chmod +x ~/.claude/statusline.sh"
@@ -104,5 +110,5 @@ fi
 
 echo
 ok "Done. Open a new Claude Code session (or wait for the next render)."
-echo "  The bar shows '…' until the first response, then live impact figures."
+echo "  The bar shows 0 until the first response, then live impact figures."
 echo "  Customize the model & displayed metrics in: $CONFIG_DEST"
