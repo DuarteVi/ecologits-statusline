@@ -13,7 +13,7 @@ SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="$HOME/.claude"
 DEST="$CLAUDE_DIR/ecologits-statusline.sh"
 SETTINGS="$CLAUDE_DIR/settings.json"
-BASE_FILE="$CLAUDE_DIR/ecologits-base.cmd"
+BASE_FILE="$CLAUDE_DIR/ecologits-wrapped-statusline.txt"
 SELF_MARKER="ecologits-statusline.sh"
 
 info() { printf '\033[36m▸ %s\033[0m\n' "$1"; }

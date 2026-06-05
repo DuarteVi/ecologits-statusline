@@ -4,7 +4,7 @@
 #
 # This is designed to ADD a line to your existing status line, not replace it.
 # It runs your previously configured status line first (saved by install.sh to
-# ~/.claude/ecologits-base.cmd), prints its output unchanged, then appends one
+# ~/.claude/ecologits-wrapped-statusline.txt), prints its output unchanged, then appends one
 # extra line with the estimated environmental impact (CO₂eq + water) of the
 # current session's generated tokens, via the public EcoLogits API.
 #
@@ -24,7 +24,7 @@
 input=$(cat)
 
 SELF_MARKER="ecologits-statusline.sh"   # guard against wrapping ourselves
-BASE_FILE="$HOME/.claude/ecologits-base.cmd"
+BASE_FILE="$HOME/.claude/ecologits-wrapped-statusline.txt"
 
 SESSION=$(echo "$input" | jq -r '.session_id // "default"')
 TRANSCRIPT=$(echo "$input" | jq -r '.transcript_path // empty')

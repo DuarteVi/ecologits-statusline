@@ -19,7 +19,7 @@ readable from the first token onward.
 ## How it works
 
 - **Wraps, doesn't replace.** Claude Code allows only one status line, so the
-  installer saves your current `statusLine.command` to `~/.claude/ecologits-base.cmd`
+  installer saves your current `statusLine.command` to `~/.claude/ecologits-wrapped-statusline.txt`
   and points Claude Code at the EcoLogits wrapper. On each render the wrapper runs
   your original status line (same JSON on stdin), prints it unchanged, then adds
   the eco line below. If you had no status line, the eco line shows on its own.
@@ -48,7 +48,7 @@ cd ecologits-statusline
 ```
 
 The installer copies the wrapper to `~/.claude/ecologits-statusline.sh`, saves
-your current status line command to `~/.claude/ecologits-base.cmd`, and points
+your current status line command to `~/.claude/ecologits-wrapped-statusline.txt`, and points
 the `statusLine` entry in `~/.claude/settings.json` at the wrapper (backing up
 the file first). Start a new session — your existing status line stays, with
 `🤖 claude-opus-4-6 | …` added below until the first response lands.
@@ -62,7 +62,7 @@ double-wrap.
 cp ecologits-statusline.sh ~/.claude/ecologits-statusline.sh
 chmod +x ~/.claude/ecologits-statusline.sh
 # Save your existing status line command so the wrapper can run it (skip if none):
-jq -r '.statusLine.command' ~/.claude/settings.json > ~/.claude/ecologits-base.cmd
+jq -r '.statusLine.command' ~/.claude/settings.json > ~/.claude/ecologits-wrapped-statusline.txt
 ```
 
 Then point `statusLine` at the wrapper in `~/.claude/settings.json`:
@@ -90,7 +90,7 @@ Set these environment variables (e.g. in your shell profile) to customize:
 | `ECOLOGITS_MODEL` | `claude-opus-4-6`                                | Model name sent to the API                    |
 | `ECOLOGITS_ZONE`  | `WOR`                                            | Electricity-mix zone (ISO-3166 alpha-3, e.g. `USA`, `FRA`) |
 | `ECOLOGITS_API`   | `https://api.ecologits.ai/v1beta/estimations`    | Estimations endpoint (point to your own deployment if you self-host) |
-| `ECOLOGITS_BASE_CMD` | _(contents of `~/.claude/ecologits-base.cmd`)_ | Base status-line command to run before the eco line; overrides the saved file |
+| `ECOLOGITS_BASE_CMD` | _(contents of `~/.claude/ecologits-wrapped-statusline.txt`)_ | Base status-line command to run before the eco line; overrides the saved file |
 
 ## Caveats
 
@@ -111,14 +111,14 @@ Restore your original status line, then remove the files:
 
 ```bash
 # Put your saved base command back as the status line (if you had one):
-BASE=$(cat ~/.claude/ecologits-base.cmd 2>/dev/null)
+BASE=$(cat ~/.claude/ecologits-wrapped-statusline.txt 2>/dev/null)
 if [ -n "$BASE" ]; then
   jq --arg c "$BASE" '.statusLine = {type:"command", command:$c, padding:2}' \
      ~/.claude/settings.json > ~/.claude/settings.json.tmp && mv ~/.claude/settings.json.tmp ~/.claude/settings.json
 else
   jq 'del(.statusLine)' ~/.claude/settings.json > ~/.claude/settings.json.tmp && mv ~/.claude/settings.json.tmp ~/.claude/settings.json
 fi
-rm -f ~/.claude/ecologits-statusline.sh ~/.claude/ecologits-base.cmd
+rm -f ~/.claude/ecologits-statusline.sh ~/.claude/ecologits-wrapped-statusline.txt
 rm -rf ~/.claude/ecologits-cache
 ```
 
