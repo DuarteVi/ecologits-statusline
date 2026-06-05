@@ -203,8 +203,25 @@ your script for you).
 
 Built on [EcoLogits](https://ecologits.ai) by the
 [GenAI Impact](https://genai-impact.org/) collective. This project is an
-independent status-line integration and is not affiliated with Anthropic.
+independent status-line integration and is not affiliated with Anthropic or
+with GenAI Impact.
+
+**About the name.** "EcoLogits" refers to the projects of the GenAI Impact
+collective — primarily:
+
+- [`ecologits`](https://github.com/mlco2/ecologits) — the impact-estimation
+  library ([MPL-2.0](https://github.com/mlco2/ecologits?tab=MPL-2.0-1-ov-file))
+- [`ecologits-api`](https://github.com/mlco2/ecologits-api) — the public API
+  this add-on queries ([AGPL-3.0](https://github.com/mlco2/ecologits-api?tab=AGPL-3.0-1-ov-file))
+
+This add-on **does not bundle or redistribute any code** from those projects: it
+is a thin client that calls the public EcoLogits API over HTTP. It therefore
+carries no MPL-2.0 or AGPL-3.0 obligations — those licenses bind, respectively,
+anyone who copies/modifies the library's source files, or anyone who *operates*
+the API server (including if you self-host `ecologits-api`). "EcoLogits" is used
+here only to credit and point at the upstream projects.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). This covers the scripts in this repository only;
+the upstream EcoLogits projects keep their own licenses (see above).
