@@ -107,7 +107,16 @@ Set these environment variables (e.g. in your shell profile) to customize:
 
 ## Uninstall
 
-Restore your original status line, then remove the files:
+```bash
+./uninstall.sh
+```
+
+This restores your original status line (or removes the entry if you had none,
+backing up `settings.json` first) and deletes the wrapper, the saved base
+command, and the cache directory.
+
+<details>
+<summary>Manual uninstall</summary>
 
 ```bash
 # Put your saved base command back as the status line (if you had one):
@@ -121,6 +130,8 @@ fi
 rm -f ~/.claude/ecologits-statusline.sh ~/.claude/ecologits-wrapped-statusline.txt
 rm -rf ~/.claude/ecologits-cache
 ```
+
+</details>
 
 ## Credits
 
