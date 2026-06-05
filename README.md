@@ -201,13 +201,13 @@ your script for you).
 
 ## Credits
 
-Built on [EcoLogits](https://ecologits.ai) by the
-[GenAI Impact](https://genai-impact.org/) collective. This project is an
+Built on [EcoLogits](https://ecologits.ai), part of the
+[CodeCarbon](https://codecarbon.io/) non-profit. This project is an
 independent status-line integration and is not affiliated with Anthropic or
-with GenAI Impact.
+with CodeCarbon.
 
-**About the name.** "EcoLogits" refers to the projects of the GenAI Impact
-collective — primarily:
+**About the name.** "EcoLogits" refers to the projects of the CodeCarbon
+non-profit — primarily:
 
 - [`ecologits`](https://github.com/mlco2/ecologits) — the impact-estimation
   library ([MPL-2.0](https://github.com/mlco2/ecologits?tab=MPL-2.0-1-ov-file))
