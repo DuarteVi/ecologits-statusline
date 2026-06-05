@@ -10,12 +10,14 @@ own `statusline.sh` and add **one line** that appends the eco bar below yours:
 
 ```
 your existing status line, unchanged…
-🤖 claude-opus-4-6 | 🔥 0.21 kgCO₂eq | 💧 3.1 L | ⚡️ 0.4 kWh  ← added by EcoLogits
+🔥 0.21 kgCO₂eq | 💧 3.1 L | ⚡️ 0.4 kWh  ← added by EcoLogits
 ```
 
 The impact grows live as you use Claude Code. Units auto-scale
 (mWh → Wh → kWh energy, mg → g → kg CO₂eq, mL → L water) so the numbers stay
-readable from the first token onward.
+readable from the first token onward. Before the first response the metrics
+read `0`. Want the model name shown too? Set
+[`ECOLOGITS_MODEL_LABEL`](#other-settings) to get `🤖 claude-opus-4-6 | 🔥 …`.
 
 ## Why a snippet?
 
@@ -154,6 +156,7 @@ E.g. `ECOLOGITS_METRICS="energy gwp wcf adpe pe"` shows all five.
 
 | Variable          | Default                                          | Description                                   |
 | ----------------- | ------------------------------------------------ | --------------------------------------------- |
+| `ECOLOGITS_MODEL_LABEL` | _(empty → hidden)_                         | Text prepended before the metrics. Empty by default, so the line starts at the metrics. Set e.g. `🤖 $ECOLOGITS_MODEL` to show the estimated model; a ` \| ` separator is added automatically |
 | `ECOLOGITS_ZONE`  | `WOR`                                            | Electricity-mix zone for the server location — where the data center sits (ISO-3166 alpha-3, e.g. `USA`, `FRA`) |
 | `ECOLOGITS_API`   | `https://api.ecologits.ai/v1beta/estimations`    | Estimations endpoint (point to your own deployment if you self-host) |
 

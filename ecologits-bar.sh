@@ -21,6 +21,7 @@
 #   ECOLOGITS_MODEL     model sent to the API   (default: claude-opus-4-6)
 #   ECOLOGITS_ZONE      electricity-mix zone for the server location (default: WOR)
 #   ECOLOGITS_METRICS   impacts to display      (default: "gwp wcf energy")
+#   ECOLOGITS_MODEL_LABEL  prefix before metrics (default: empty = hidden)
 #   ECOLOGITS_API       estimations endpoint    (default: api.ecologits.ai)
 #
 # Dependencies: bash, jq, curl
@@ -51,6 +52,9 @@ ECO_API="${ECOLOGITS_API:-https://api.ecologits.ai/v1beta/estimations}"
 ECO_MODEL="${ECOLOGITS_MODEL:-claude-opus-4-6}"
 ECO_ZONE="${ECOLOGITS_ZONE:-WOR}"
 ECO_METRICS="${ECOLOGITS_METRICS:-gwp wcf energy}"
+# Optional prefix shown before the metrics (hidden by default). Set
+# ECOLOGITS_MODEL_LABEL in the config to display e.g. "🤖 $ECOLOGITS_MODEL".
+ECO_LABEL="${ECOLOGITS_MODEL_LABEL:-}"
 ECO_DIR="$HOME/.claude/ecologits-cache"
 # Cache holds: "<tokens> <gwp_kg> <wcf_L> <energy_kWh> <adpe_kg> <pe_MJ>"
 ECO_CACHE="$ECO_DIR/$SESSION.json"
@@ -107,7 +111,7 @@ fi
 # Auto-scaling unit formatters (one per metric).
 fmt_gwp() {  # kgCO₂eq -> mg / g / kg
   awk -v v="$1" 'BEGIN{
-    if (v=="" || v+0<=0) { print "—"; exit }
+    if (v=="" || v+0<=0) { print "0"; exit }
     if (v>=1)          printf "%.2f kgCO₂eq", v;
     else if (v>=0.001) { g=v*1000; if (g>=10) printf "%.0f gCO₂eq", g; else printf "%.1f gCO₂eq", g; }
     else               printf "%.0f mgCO₂eq", v*1000000;
@@ -115,21 +119,21 @@ fmt_gwp() {  # kgCO₂eq -> mg / g / kg
 }
 fmt_wcf() {  # litres -> mL / L
   awk -v v="$1" 'BEGIN{
-    if (v=="" || v+0<=0) { print "—"; exit }
+    if (v=="" || v+0<=0) { print "0"; exit }
     if (v>=1) printf "%.2f L", v;
     else { ml=v*1000; if (ml>=10) printf "%.0f mL", ml; else if (ml>=1) printf "%.1f mL", ml; else printf "%.2f mL", ml; }
   }'
 }
 fmt_energy() {  # kWh -> mWh / Wh / kWh
   awk -v v="$1" 'BEGIN{
-    if (v=="" || v+0<=0) { print "—"; exit }
+    if (v=="" || v+0<=0) { print "0"; exit }
     if (v>=1) printf "%.2f kWh", v;
     else { wh=v*1000; if (wh>=10) printf "%.0f Wh", wh; else if (wh>=1) printf "%.1f Wh", wh; else printf "%.0f mWh", v*1000000; }
   }'
 }
 fmt_adpe() {  # kgSbeq -> µg / mg / g / kg
   awk -v v="$1" 'BEGIN{
-    if (v=="" || v+0<=0) { print "—"; exit }
+    if (v=="" || v+0<=0) { print "0"; exit }
     if (v>=1)            printf "%.2f kgSbeq", v;
     else if (v>=0.001)   printf "%.1f gSbeq", v*1000;
     else if (v>=0.000001){ mg=v*1000000; if (mg>=10) printf "%.0f mgSbeq", mg; else printf "%.1f mgSbeq", mg; }
@@ -138,17 +142,14 @@ fmt_adpe() {  # kgSbeq -> µg / mg / g / kg
 }
 fmt_pe() {  # MJ -> J / kJ / MJ
   awk -v v="$1" 'BEGIN{
-    if (v=="" || v+0<=0) { print "—"; exit }
+    if (v=="" || v+0<=0) { print "0"; exit }
     if (v>=1)          printf "%.2f MJ", v;
     else if (v>=0.001) { kj=v*1000; if (kj>=10) printf "%.0f kJ", kj; else printf "%.1f kJ", kj; }
     else               printf "%.0f J", v*1000000;
   }'
 }
 
-# Map a metric key to its cached value, emoji, and formatter.
-metric_value() { case "$1" in
-  gwp) printf '%s' "$GWP";; wcf) printf '%s' "$WCF";; energy) printf '%s' "$ENERGY";;
-  adpe) printf '%s' "$ADPE";; pe) printf '%s' "$PE";; esac; }
+# Map a metric key to its emoji + formatted cached value.
 render_metric() { case "$1" in
   gwp)    printf '🔥 %s' "$(fmt_gwp "$GWP")";;
   wcf)    printf '💧 %s' "$(fmt_wcf "$WCF")";;
@@ -157,9 +158,8 @@ render_metric() { case "$1" in
   pe)     printf '🛢️ %s' "$(fmt_pe "$PE")";;
 esac; }
 
-# Build the eco line from the selected metrics, in order. Show "…" until every
-# selected metric has a cached value.
-READY=1
+# Build the eco line from the selected metrics, in order. Metrics with no value
+# yet (cache not populated) render as "0" via the formatters — never "…".
 SELECTED=()
 for key in $ECO_METRICS; do
   case "$key" in
@@ -167,18 +167,15 @@ for key in $ECO_METRICS; do
     *) continue;;            # ignore unknown keys
   esac
   SELECTED+=("$key")
-  [ -z "$(metric_value "$key")" ] && READY=0
 done
-[ "${#SELECTED[@]}" -eq 0 ] && { SELECTED=(gwp wcf energy); READY=0; }
+[ "${#SELECTED[@]}" -eq 0 ] && SELECTED=(gwp wcf energy)
 
-if [ "$READY" -eq 1 ]; then
-  ECO_LINE="🤖 ${ECO_MODEL}"
-  for key in "${SELECTED[@]}"; do
-    ECO_LINE="$ECO_LINE | $(render_metric "$key")"
-  done
-else
-  ECO_LINE="🤖 ${ECO_MODEL} | …"
-fi
+# Optional model label prefix (hidden unless ECOLOGITS_MODEL_LABEL is set).
+ECO_LINE="$ECO_LABEL"
+for key in "${SELECTED[@]}"; do
+  piece="$(render_metric "$key")"
+  if [ -z "$ECO_LINE" ]; then ECO_LINE="$piece"; else ECO_LINE="$ECO_LINE | $piece"; fi
+done
 
 # ---- Render: one line, appended below whatever your status line printed -----
 printf '%b\n' "${GRAY}${ECO_LINE}${RESET}"

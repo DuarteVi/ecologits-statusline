@@ -37,6 +37,14 @@
 # Default shows greenhouse gas, water, and energy:
 : "${ECOLOGITS_METRICS:=gwp wcf energy}"
 
+# Optional label shown BEFORE the metrics (e.g. which model is being estimated).
+# Empty by default → nothing is shown, the line starts straight at the metrics:
+#     🔥 4.2 gCO₂eq | 💧 43 mL | ⚡️ 8.4 Wh
+# Set it to any text to prepend it (a " | " separator is added automatically).
+# You can interpolate the model with $ECOLOGITS_MODEL, e.g.:
+#     : "${ECOLOGITS_MODEL_LABEL:=🤖 $ECOLOGITS_MODEL}"   → 🤖 claude-opus-4-6 | 🔥 …
+: "${ECOLOGITS_MODEL_LABEL:=}"
+
 # ── ADVANCED ───────────────────────────────────────────────────────────────
 # Override the estimations endpoint (e.g. a self-hosted EcoLogits deployment).
 : "${ECOLOGITS_API:=https://api.ecologits.ai/v1beta/estimations}"
