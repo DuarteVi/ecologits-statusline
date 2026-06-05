@@ -59,7 +59,7 @@ double-wrap.
 ### Manual install
 
 ```bash
-cp statusline.sh ~/.claude/ecologits-statusline.sh
+cp ecologits-statusline.sh ~/.claude/ecologits-statusline.sh
 chmod +x ~/.claude/ecologits-statusline.sh
 # Save your existing status line command so the wrapper can run it (skip if none):
 jq -r '.statusLine.command' ~/.claude/settings.json > ~/.claude/ecologits-base.cmd

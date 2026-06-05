@@ -2,7 +2,7 @@
 #
 # Installer for the EcoLogits Claude Code status line (additive / wrapper).
 # - Verifies dependencies (jq, curl)
-# - Copies statusline.sh to ~/.claude/ecologits-statusline.sh
+# - Copies ecologits-statusline.sh to ~/.claude/ecologits-statusline.sh
 # - Saves your CURRENT status line command so EcoLogits can run it and append
 #   its line below (instead of replacing your status line)
 # - Points the statusLine setting at the EcoLogits wrapper (backup taken)
@@ -34,7 +34,7 @@ ok "Dependencies present (jq, curl)"
 
 # 2. Install the wrapper script --------------------------------------------
 mkdir -p "$CLAUDE_DIR/ecologits-cache"
-cp "$SRC_DIR/statusline.sh" "$DEST"
+cp "$SRC_DIR/ecologits-statusline.sh" "$DEST"
 chmod +x "$DEST"
 ok "Installed wrapper script -> $DEST"
 
