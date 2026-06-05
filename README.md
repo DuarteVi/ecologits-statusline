@@ -37,7 +37,7 @@ nothing of yours changes except the two lines you paste.
 ## Install
 
 ```bash
-git clone https://github.com/<your-user>/ecologits-statusline.git
+git clone https://github.com/DuarteVi/ecologits-statusline.git
 cd ecologits-statusline
 ./install.sh
 ```

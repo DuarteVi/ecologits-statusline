@@ -13,7 +13,7 @@
 # `input=$(cat)` at the top of a statusline script). The bar reads that JSON on
 # its own stdin and appends its line below yours.
 #
-# Repo: https://github.com/<your-user>/ecologits-statusline
+# Repo: https://github.com/DuarteVi/ecologits-statusline
 # Powered by EcoLogits — https://ecologits.ai  •  https://api.ecologits.ai
 #
 # Configuration: edit ~/.claude/ecologits.config.sh (sourced below). Each value
