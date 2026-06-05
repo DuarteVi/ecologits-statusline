@@ -6,11 +6,12 @@ emissions (kgCO₂eq) and freshwater consumption (L) — from the tokens Claude
 generates, using the public [EcoLogits API](https://api.ecologits.ai).
 
 It's a **drop-in component**, not a status line. You keep full ownership of your
-own `statusline.sh` and add **one line** that appends the eco bar below yours:
+own `statusline.sh`: capture the eco bar into a variable, then drop the
+`${ECOLOGITS_LINE}` placeholder anywhere in your own line:
 
 ```
-your existing status line, unchanged…
-🔥 0.21 kgCO₂eq | 💧 3.1 L | ⚡️ 0.4 kWh  ← added by EcoLogits
+your existing status line… | 🔥 0.21 kgCO₂eq | 💧 3.1 L | ⚡️ 0.4 kWh
+                              └─────────── ${ECOLOGITS_LINE} ───────────┘
 ```
 
 The impact grows live as you use Claude Code. Units auto-scale
@@ -23,9 +24,9 @@ read `0`. Want the model name shown too? Set
 
 Many people already have a customized status line. Rather than take it over,
 EcoLogits gives you a tiny script — `~/.claude/ecologits-bar.sh` — that reads the
-same JSON Claude Code hands your status line and prints **one extra line**. You
-call it from your own script, so nothing of yours changes except the two lines
-you paste.
+same JSON Claude Code hands your status line and emits the impact figures. You
+capture its output into `${ECOLOGITS_LINE}` and place it wherever you like, so
+nothing of yours changes except the two lines you paste.
 
 ## Requirements
 
@@ -54,15 +55,25 @@ canonical first line does this:
 input=$(cat)
 ```
 
-Then, **after your own status line prints**, add these two lines at the bottom:
+Then, **after `input=$(cat)`**, capture the bar into a variable and drop the
+`${ECOLOGITS_LINE}` placeholder anywhere in your own status line:
 
 ```bash
 # ─── EcoLogits impact bar — https://ecologits.ai ───
-printf '%s' "$input" | ~/.claude/ecologits-bar.sh
+# 1) Capture the bar into a variable:
+ECOLOGITS_LINE=$(printf '%s' "$input" | ~/.claude/ecologits-bar.sh)
+
+# 2) Drop ${ECOLOGITS_LINE} anywhere in your own line, e.g.:
+echo -e "...your status line... | ${ECOLOGITS_LINE}"
 ```
 
 That's it. Start a new session — your status line stays exactly as it was, with
-the eco bar added below it (showing `…` until the first response lands).
+the eco figures slotted in wherever you placed the placeholder (showing `0` until
+the first response lands).
+
+> Capturing with `$( … )` runs entirely from a local cache, so it never adds
+> latency. Prefer the eco bar on its own separate line below yours? Just skip the
+> variable and pipe it directly: `printf '%s' "$input" | ~/.claude/ecologits-bar.sh`.
 
 > The snippet assumes your captured stdin is in a variable named `input`. If you
 > named it something else, use that name instead (e.g. `printf '%s' "$STDIN"`).
@@ -77,11 +88,12 @@ Create `~/.claude/statusline.sh`:
 #!/usr/bin/env bash
 input=$(cat)
 
-# (Optional) your own status line goes here, e.g.:
-# echo "my prompt"
-
 # ─── EcoLogits impact bar — https://ecologits.ai ───
-printf '%s' "$input" | ~/.claude/ecologits-bar.sh
+# 1) Capture the impact bar into a variable:
+ECOLOGITS_LINE=$(printf '%s' "$input" | ~/.claude/ecologits-bar.sh)
+
+# 2) Place ${ECOLOGITS_LINE} anywhere in your own status line:
+echo -e "my prompt | ${ECOLOGITS_LINE}"
 ```
 
 Make it executable and point Claude Code at it:
