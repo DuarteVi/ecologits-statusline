@@ -1,11 +1,12 @@
-# EcoLogits status line for Claude Code
+# EcoLogits impact bar for Claude Code
 
-A [Claude Code](https://claude.com/claude-code) status line add-on that estimates
+A [Claude Code](https://claude.com/claude-code) status-line add-on that estimates
 the **environmental impact of your session** — energy use (kWh), greenhouse-gas
 emissions (kgCO₂eq) and freshwater consumption (L) — from the tokens Claude
 generates, using the public [EcoLogits API](https://api.ecologits.ai).
 
-It's **additive**: it keeps your existing status line and adds one line below it.
+It's a **drop-in component**, not a status line. You keep full ownership of your
+own `statusline.sh` and add **one line** that appends the eco bar below yours:
 
 ```
 your existing status line, unchanged…
@@ -16,22 +17,13 @@ The impact grows live as you use Claude Code. Units auto-scale
 (mWh → Wh → kWh energy, mg → g → kg CO₂eq, mL → L water) so the numbers stay
 readable from the first token onward.
 
-## How it works
+## Why a snippet?
 
-- **Wraps, doesn't replace.** Claude Code allows only one status line, so the
-  installer saves your current `statusLine.command` to `~/.claude/ecologits-wrapped-statusline.txt`
-  and points Claude Code at the EcoLogits wrapper. On each render the wrapper runs
-  your original status line (same JSON on stdin), prints it unchanged, then adds
-  the eco line below. If you had no status line, the eco line shows on its own.
-- Sums `output_tokens` across the **current session's** transcript (resets each
-  session).
-- Sends that total to `POST /v1beta/estimations` on the public EcoLogits API and
-  shows the **midpoint** of the returned `energy` (kWh), `gwp` (CO₂eq) and `wcf`
-  (water) ranges.
-- **Never blocks your terminal:** each render prints instantly from a small
-  cache in `~/.claude/ecologits-cache/`. A refresh runs in the background **only
-  when your token count grows** — idle sessions make zero API calls. If a
-  refresh fails (offline, etc.) the last-known value is kept, never blanked.
+Many people already have a customized status line. Rather than take it over,
+EcoLogits gives you a tiny script — `~/.claude/ecologits-bar.sh` — that reads the
+same JSON Claude Code hands your status line and prints **one extra line**. You
+call it from your own script, so nothing of yours changes except the two lines
+you paste.
 
 ## Requirements
 
@@ -47,43 +39,74 @@ cd ecologits-statusline
 ./install.sh
 ```
 
-The installer copies the wrapper to `~/.claude/ecologits-statusline.sh`, drops a
-config file at `~/.claude/ecologits.config.sh` (only if you don't already have
-one), saves your current status line command to
-`~/.claude/ecologits-wrapped-statusline.txt`, and points the `statusLine` entry
-in `~/.claude/settings.json` at the wrapper (backing up the file first). Start a
-new session — your existing status line stays, with `🤖 claude-opus-4-6 | …`
-added below until the first response lands.
+The installer is **non-destructive** — it never edits your `settings.json` or any
+`statusline.sh`. It copies `ecologits-bar.sh` and a config file into `~/.claude`,
+then prints the snippet to paste.
 
-Re-running the installer is safe: it detects it's already installed and won't
-double-wrap.
+### Add the bar to your status line
 
-### Manual install
+Your `statusline.sh` must capture the JSON Claude Code sends on stdin — the
+canonical first line does this:
 
 ```bash
-cp ecologits-statusline.sh ~/.claude/ecologits-statusline.sh
-chmod +x ~/.claude/ecologits-statusline.sh
-# Config file (skip the cp if you want to keep an existing one):
-cp ecologits.config.sh ~/.claude/ecologits.config.sh
-# Save your existing status line command so the wrapper can run it (skip if none):
-jq -r '.statusLine.command' ~/.claude/settings.json > ~/.claude/ecologits-wrapped-statusline.txt
+input=$(cat)
 ```
 
-Then point `statusLine` at the wrapper in `~/.claude/settings.json`:
+Then, **after your own status line prints**, add these two lines at the bottom:
+
+```bash
+# ─── EcoLogits impact bar — https://ecologits.ai ───
+printf '%s' "$input" | ~/.claude/ecologits-bar.sh
+```
+
+That's it. Start a new session — your status line stays exactly as it was, with
+the eco bar added below it (showing `…` until the first response lands).
+
+> The snippet assumes your captured stdin is in a variable named `input`. If you
+> named it something else, use that name instead (e.g. `printf '%s' "$STDIN"`).
+> If the bar can't see the JSON it prints `🤖 EcoLogits: no input …` so you can
+> spot the mismatch.
+
+### No status line yet?
+
+Create `~/.claude/statusline.sh`:
+
+```bash
+#!/usr/bin/env bash
+input=$(cat)
+
+# (Optional) your own status line goes here, e.g.:
+# echo "my prompt"
+
+# ─── EcoLogits impact bar — https://ecologits.ai ───
+printf '%s' "$input" | ~/.claude/ecologits-bar.sh
+```
+
+Make it executable and point Claude Code at it:
+
+```bash
+chmod +x ~/.claude/statusline.sh
+```
 
 ```json
 {
-  "statusLine": {
-    "type": "command",
-    "command": "~/.claude/ecologits-statusline.sh",
-    "padding": 2
-  }
+  "statusLine": { "type": "command", "command": "~/.claude/statusline.sh", "padding": 2 }
 }
 ```
 
-> **Note:** Only `type: "command"` base status lines can be wrapped. If you'd
-> rather not wrap, set `ECOLOGITS_BASE_CMD` to your base command, or just call
-> the `EcoLogits` block from your own script.
+(Running `./install.sh` prints this same starter when it detects no status line.)
+
+## How it works
+
+- Sums `output_tokens` across the **current session's** transcript (resets each
+  session).
+- Sends that total to `POST /v1beta/estimations` on the public EcoLogits API and
+  shows the **midpoint** of the returned `energy` (kWh), `gwp` (CO₂eq) and `wcf`
+  (water) ranges.
+- **Never blocks your terminal:** each render prints instantly from a small cache
+  in `~/.claude/ecologits-cache/`. A refresh runs in the background **only when
+  your token count grows** — idle sessions make zero API calls. If a refresh
+  fails (offline, etc.) the last-known value is kept, never blanked.
 
 ## Configuration
 
@@ -133,7 +156,6 @@ E.g. `ECOLOGITS_METRICS="energy gwp wcf adpe pe"` shows all five.
 | ----------------- | ------------------------------------------------ | --------------------------------------------- |
 | `ECOLOGITS_ZONE`  | `WOR`                                            | Electricity-mix zone for the server location — where the data center sits (ISO-3166 alpha-3, e.g. `USA`, `FRA`) |
 | `ECOLOGITS_API`   | `https://api.ecologits.ai/v1beta/estimations`    | Estimations endpoint (point to your own deployment if you self-host) |
-| `ECOLOGITS_BASE_CMD` | _(contents of `~/.claude/ecologits-wrapped-statusline.txt`)_ | Base status-line command to run before the eco line; overrides the saved file |
 
 > Every setting can also be supplied as a real exported environment variable,
 > which takes precedence over the config file.
@@ -154,31 +176,13 @@ E.g. `ECOLOGITS_METRICS="energy gwp wcf adpe pe"` shows all five.
 ## Uninstall
 
 ```bash
-./uninstall.sh
+./uninstall.sh          # remove the bar + cache, keep your config
+./uninstall.sh --purge  # also remove ecologits.config.sh
 ```
 
-This restores your original status line (or removes the entry if you had none,
-backing up `settings.json` first) and deletes the wrapper, the saved base
-command, and the cache directory.
-
-<details>
-<summary>Manual uninstall</summary>
-
-```bash
-# Put your saved base command back as the status line (if you had one):
-BASE=$(cat ~/.claude/ecologits-wrapped-statusline.txt 2>/dev/null)
-if [ -n "$BASE" ]; then
-  jq --arg c "$BASE" '.statusLine = {type:"command", command:$c, padding:2}' \
-     ~/.claude/settings.json > ~/.claude/settings.json.tmp && mv ~/.claude/settings.json.tmp ~/.claude/settings.json
-else
-  jq 'del(.statusLine)' ~/.claude/settings.json > ~/.claude/settings.json.tmp && mv ~/.claude/settings.json.tmp ~/.claude/settings.json
-fi
-rm -f ~/.claude/ecologits-statusline.sh ~/.claude/ecologits.config.sh \
-      ~/.claude/ecologits-wrapped-statusline.txt
-rm -rf ~/.claude/ecologits-cache
-```
-
-</details>
+This deletes `~/.claude/ecologits-bar.sh` and the cache directory, then reminds
+you to remove the two pasted lines from your own `statusline.sh` (it won't edit
+your script for you).
 
 ## Credits
 

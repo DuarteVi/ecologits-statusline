@@ -1,25 +1,33 @@
 #!/usr/bin/env bash
 #
-# Installer for the EcoLogits Claude Code status line (additive / wrapper).
-# - Verifies dependencies (jq, curl)
-# - Copies ecologits-statusline.sh to ~/.claude/ecologits-statusline.sh
-# - Saves your CURRENT status line command so EcoLogits can run it and append
-#   its line below (instead of replacing your status line)
-# - Points the statusLine setting at the EcoLogits wrapper (backup taken)
+# Installer for the EcoLogits Claude Code impact bar (drop-in component).
+#
+# Non-destructive by design: it NEVER edits your settings.json or any
+# statusline.sh. It only:
+#   - Verifies dependencies (jq, curl)
+#   - Copies ecologits-bar.sh to ~/.claude/ecologits-bar.sh
+#   - Copies ecologits.config.sh to ~/.claude (without clobbering an existing one)
+#   - Prints the two lines you paste into your own statusline.sh
+#
+# If you don't have a status line yet, it prints a complete starter instead.
 #
 set -euo pipefail
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="$HOME/.claude"
-DEST="$CLAUDE_DIR/ecologits-statusline.sh"
+DEST="$CLAUDE_DIR/ecologits-bar.sh"
 CONFIG_DEST="$CLAUDE_DIR/ecologits.config.sh"
 SETTINGS="$CLAUDE_DIR/settings.json"
-BASE_FILE="$CLAUDE_DIR/ecologits-wrapped-statusline.txt"
-SELF_MARKER="ecologits-statusline.sh"
 
 info() { printf '\033[36m▸ %s\033[0m\n' "$1"; }
 ok()   { printf '\033[32m✓ %s\033[0m\n' "$1"; }
 err()  { printf '\033[31m✗ %s\033[0m\n' "$1" >&2; }
+
+# The exact block users paste into their own statusline.sh.
+print_snippet() {
+  printf '\033[90m# ─── EcoLogits impact bar — https://ecologits.ai ───\033[0m\n'
+  printf '\033[90mprintf '\''%%s'\'' "$input" | ~/.claude/ecologits-bar.sh\033[0m\n'
+}
 
 # 1. Dependencies -----------------------------------------------------------
 missing=()
@@ -27,19 +35,18 @@ command -v jq   >/dev/null 2>&1 || missing+=("jq")
 command -v curl >/dev/null 2>&1 || missing+=("curl")
 if [ "${#missing[@]}" -gt 0 ]; then
   err "Missing dependencies: ${missing[*]}"
-  echo "  macOS:        brew install ${missing[*]}"
+  echo "  macOS:         brew install ${missing[*]}"
   echo "  Debian/Ubuntu: sudo apt-get install -y ${missing[*]}"
   exit 1
 fi
 ok "Dependencies present (jq, curl)"
 
-# 2. Install the wrapper script --------------------------------------------
+# 2. Install the bar script + config ----------------------------------------
 mkdir -p "$CLAUDE_DIR/ecologits-cache"
-cp "$SRC_DIR/ecologits-statusline.sh" "$DEST"
+cp "$SRC_DIR/ecologits-bar.sh" "$DEST"
 chmod +x "$DEST"
-ok "Installed wrapper script -> $DEST"
+ok "Installed impact bar -> $DEST"
 
-# Install the config file, but never clobber an existing one.
 if [ -f "$CONFIG_DEST" ]; then
   info "Keeping your existing config -> $CONFIG_DEST"
 else
@@ -47,44 +54,55 @@ else
   ok "Installed config -> $CONFIG_DEST (edit to pick model & metrics)"
 fi
 
-# 3. Decide what to wrap, then point statusLine at the wrapper --------------
-NEW_STATUSLINE=$(jq -n --arg cmd "$DEST" '{type: "command", command: $cmd, padding: 2}')
+# 3. Tell the user exactly what to paste, branching on whether they already
+#    have a status line. We never modify their files. ------------------------
+echo
 
+existing_type=""
+existing_cmd=""
 if [ -f "$SETTINGS" ]; then
-  BACKUP="$SETTINGS.bak.$$"
-  cp "$SETTINGS" "$BACKUP"
+  existing_type=$(jq -r '.statusLine.type // empty' "$SETTINGS" 2>/dev/null || true)
+  existing_cmd=$(jq -r '.statusLine.command // empty' "$SETTINGS" 2>/dev/null || true)
+fi
 
-  existing_type=$(jq -r '.statusLine.type // empty' "$SETTINGS")
-  existing_cmd=$(jq -r '.statusLine.command // empty' "$SETTINGS")
-  existing_any=$(jq -r 'if .statusLine then "yes" else "" end' "$SETTINGS")
+if [ "$existing_type" = "command" ] && [ -n "$existing_cmd" ]; then
+  info "You already have a status line. Add these two lines to your script,"
+  info "after it prints its own line (it must capture stdin via: input=\$(cat))."
 
-  if [ -n "$existing_cmd" ] && [[ "$existing_cmd" == *"$SELF_MARKER"* ]]; then
-    info "EcoLogits is already installed; keeping the wrapped base in $BASE_FILE"
-  elif [ -n "$existing_cmd" ] && [ "$existing_type" = "command" ]; then
-    printf '%s' "$existing_cmd" > "$BASE_FILE"
-    info "Wrapping your existing status line (saved to $BASE_FILE):"
-    echo "    $existing_cmd"
-  elif [ -n "$existing_any" ]; then
-    rm -f "$BASE_FILE"
-    info "Existing statusLine is type '${existing_type:-?}' (not 'command') and can't be chained."
-    info "The eco line will show standalone."
+  # If the command resolves to a script file we can name, point right at it.
+  script_path="${existing_cmd%% *}"
+  script_path="${script_path/#\~/$HOME}"
+  if [ -f "$script_path" ]; then
+    echo "  Your status line script: $script_path"
   else
-    rm -f "$BASE_FILE"
-    info "No existing status line found; the eco line will show standalone."
+    echo "  Your status line command: $existing_cmd"
   fi
-
-  tmp=$(mktemp)
-  jq --argjson sl "$NEW_STATUSLINE" '.statusLine = $sl' "$SETTINGS" > "$tmp" && mv "$tmp" "$SETTINGS"
-  ok "Updated $SETTINGS (backup: $BACKUP)"
+  echo
+  print_snippet
 else
-  rm -f "$BASE_FILE"
-  jq -n --argjson sl "$NEW_STATUSLINE" '{statusLine: $sl}' > "$SETTINGS"
-  info "No existing status line found; the eco line will show standalone."
-  ok "Created $SETTINGS"
+  info "No 'command' status line found — here's a complete starter."
+  info "1) Create ~/.claude/statusline.sh with:"
+  echo
+  cat <<'STARTER'
+    #!/usr/bin/env bash
+    input=$(cat)
+
+    # (Optional) your own status line goes here, e.g.:
+    # echo "my prompt"
+
+    # ─── EcoLogits impact bar — https://ecologits.ai ───
+    printf '%s' "$input" | ~/.claude/ecologits-bar.sh
+STARTER
+  echo
+  info "2) Make it executable:  chmod +x ~/.claude/statusline.sh"
+  info "3) Point Claude Code at it — add this to ~/.claude/settings.json:"
+  echo
+  cat <<'SETTINGS_JSON'
+    "statusLine": { "type": "command", "command": "~/.claude/statusline.sh", "padding": 2 }
+SETTINGS_JSON
 fi
 
 echo
 ok "Done. Open a new Claude Code session (or wait for the next render)."
-echo "  Your existing status line is preserved; the eco line is added below it."
-echo "  It shows '…' until the first response, then live impact figures."
+echo "  The bar shows '…' until the first response, then live impact figures."
 echo "  Customize the model & displayed metrics in: $CONFIG_DEST"

@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 #
-# EcoLogits status line for Claude Code  (additive / wrapper)
+# EcoLogits impact bar for Claude Code  (drop-in component)
 #
-# This is designed to ADD a line to your existing status line, not replace it.
-# It runs your previously configured status line first (saved by install.sh to
-# ~/.claude/ecologits-wrapped-statusline.txt), prints its output unchanged, then
-# appends one extra line with the estimated environmental impact of the current
-# session's generated tokens, via the public EcoLogits API.
+# This prints ONE line estimating the environmental impact — energy, greenhouse
+# gas, freshwater — of the current session's generated tokens, via the public
+# EcoLogits API. It is meant to be called from inside YOUR OWN statusline.sh,
+# which keeps full ownership of its output. Add this after your line prints:
 #
-# If no base status line is configured, it just prints the eco line on its own.
+#     printf '%s' "$input" | ~/.claude/ecologits-bar.sh
+#
+# where $input holds the JSON Claude Code sent on stdin (the canonical
+# `input=$(cat)` at the top of a statusline script). The bar reads that JSON on
+# its own stdin and appends its line below yours.
 #
 # Repo: https://github.com/<your-user>/ecologits-statusline
 # Powered by EcoLogits — https://ecologits.ai  •  https://api.ecologits.ai
@@ -19,35 +22,29 @@
 #   ECOLOGITS_ZONE      electricity-mix zone for the server location (default: WOR)
 #   ECOLOGITS_METRICS   impacts to display      (default: "gwp wcf energy")
 #   ECOLOGITS_API       estimations endpoint    (default: api.ecologits.ai)
-#   ECOLOGITS_BASE_CMD  base status-line command to wrap (overrides saved file)
 #
 # Dependencies: bash, jq, curl
 
 input=$(cat)
 
-SELF_MARKER="ecologits-statusline.sh"   # guard against wrapping ourselves
-BASE_FILE="$HOME/.claude/ecologits-wrapped-statusline.txt"
 CONFIG_FILE="$HOME/.claude/ecologits.config.sh"
 
 # Load user configuration (real exported env vars still take precedence,
 # because the config file uses `: "${VAR:=default}"` assignments).
 [ -f "$CONFIG_FILE" ] && . "$CONFIG_FILE"
 
-SESSION=$(echo "$input" | jq -r '.session_id // "default"')
-TRANSCRIPT=$(echo "$input" | jq -r '.transcript_path // empty')
-
 GRAY='\033[90m'; RESET='\033[0m'
 
-# ---- Run the wrapped (existing) status line first, if any ------------------
-BASE_CMD="${ECOLOGITS_BASE_CMD:-}"
-if [ -z "$BASE_CMD" ] && [ -s "$BASE_FILE" ]; then
-  BASE_CMD=$(cat "$BASE_FILE")
+# ---- No usable input? Most likely the snippet's $input wasn't the captured
+#      stdin (e.g. your script names it differently, or never ran `input=$(cat)`).
+#      Print a visible hint rather than a normal-looking bar that never advances.
+SESSION=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
+TRANSCRIPT=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
+if [ -z "$SESSION" ] && [ -z "$TRANSCRIPT" ]; then
+  printf '%b\n' "${GRAY}🤖 EcoLogits: no input — is your captured stdin named \$input?${RESET}"
+  exit 0
 fi
-BASE_OUT=""
-if [ -n "$BASE_CMD" ] && [[ "$BASE_CMD" != *"$SELF_MARKER"* ]]; then
-  # Feed the same stdin JSON to the wrapped status line and capture its output.
-  BASE_OUT=$(printf '%s' "$input" | bash -c "$BASE_CMD" 2>/dev/null)
-fi
+[ -z "$SESSION" ] && SESSION="default"
 
 # ---- EcoLogits environmental-impact counter --------------------------------
 ECO_API="${ECOLOGITS_API:-https://api.ecologits.ai/v1beta/estimations}"
@@ -183,6 +180,5 @@ else
   ECO_LINE="🤖 ${ECO_MODEL} | …"
 fi
 
-# ---- Render: existing status line unchanged, then the eco line below -------
-[ -n "$BASE_OUT" ] && printf '%s\n' "$BASE_OUT"
+# ---- Render: one line, appended below whatever your status line printed -----
 printf '%b\n' "${GRAY}${ECO_LINE}${RESET}"
