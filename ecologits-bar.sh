@@ -22,7 +22,7 @@
 #                       current model   (default: auto)
 #   ECOLOGITS_ZONE      electricity-mix zone for the server location (default: WOR)
 #   ECOLOGITS_METRICS   impacts to display      (default: "gwp wcf energy")
-#   ECOLOGITS_MODEL_LABEL  prefix before metrics (default: empty = hidden)
+#                       add "model" to show the estimated model in the bar
 #   ECOLOGITS_API       estimations endpoint    (default: api.ecologits.ai)
 #
 # Dependencies: bash, jq, curl
@@ -91,18 +91,10 @@ if [ "$ECO_MODEL" = "auto" ]; then
   fi
   # Unrecognizable id (no family match) → fall back to the configured default.
   ECO_MODEL="${RESOLVED:-claude-opus-4-6}"
-  # Expose the resolved id so ECOLOGITS_MODEL_LABEL can display it.
+  # Expose the resolved id so the "model" metric can display it.
   ECOLOGITS_MODEL="$ECO_MODEL"
 fi
 ECO_METRICS="${ECOLOGITS_METRICS:-gwp wcf energy}"
-# Optional prefix shown before the metrics (hidden by default). Set
-# ECOLOGITS_MODEL_LABEL in the config to display e.g. "🤖 %model%". The literal
-# token %model% is replaced here, AFTER auto-resolution, so it shows the model
-# actually estimated (resolved id in auto mode) rather than the word "auto".
-# (A brace-free token is used on purpose: "{...}" collides with the ${VAR:=...}
-# brace parsing in the config file.)
-ECO_LABEL="${ECOLOGITS_MODEL_LABEL:-}"
-ECO_LABEL="${ECO_LABEL//%model%/$ECO_MODEL}"
 ECO_DIR="$HOME/.claude/ecologits-cache"
 # Cache holds: "<tokens> <model> <gwp_kg> <wcf_L> <energy_kWh> <adpe_kg> <pe_MJ>"
 ECO_CACHE="$ECO_DIR/$SESSION.json"
@@ -207,6 +199,7 @@ render_metric() { case "$1" in
   energy) printf '⚡️ %s' "$(fmt_energy "$ENERGY")";;
   adpe)   printf '⛏️ %s' "$(fmt_adpe "$ADPE")";;
   pe)     printf '🛢️ %s' "$(fmt_pe "$PE")";;
+  model)  printf '🤖 %s' "${ECO_MODEL#claude-}";;
 esac; }
 
 # Build the eco line from the selected metrics, in order. Metrics with no value
@@ -214,15 +207,14 @@ esac; }
 SELECTED=()
 for key in $ECO_METRICS; do
   case "$key" in
-    gwp|wcf|energy|adpe|pe) ;;
+    gwp|wcf|energy|adpe|pe|model) ;;
     *) continue;;            # ignore unknown keys
   esac
   SELECTED+=("$key")
 done
 [ "${#SELECTED[@]}" -eq 0 ] && SELECTED=(gwp wcf energy)
 
-# Optional model label prefix (hidden unless ECOLOGITS_MODEL_LABEL is set).
-ECO_LINE="$ECO_LABEL"
+ECO_LINE=""
 for key in "${SELECTED[@]}"; do
   piece="$(render_metric "$key")"
   if [ -z "$ECO_LINE" ]; then ECO_LINE="$piece"; else ECO_LINE="$ECO_LINE | $piece"; fi

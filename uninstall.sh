@@ -2,7 +2,7 @@
 #
 # Uninstaller for the EcoLogits Claude Code impact bar (drop-in component).
 #
-# Removes the bar script and its cache. Since the bar is a line YOU pasted into
+# Removes the bar script and its cache. Since the bar is a block YOU pasted into
 # your own statusline.sh, we can't safely un-paste it — we print the exact block
 # to delete instead. Your config is kept unless you pass --purge.
 #
@@ -36,9 +36,10 @@ fi
 
 # 2. Remind the user to delete the pasted line ------------------------------
 echo
-info "Now delete these two lines from your statusline.sh (we don't edit it for you):"
+info "Now delete the EcoLogits block from your statusline.sh (we don't edit it for you):"
 echo
 printf '\033[90m    # ─── EcoLogits impact bar — https://ecologits.ai ───\033[0m\n'
-printf '\033[90m    printf '\''%%s'\'' "$input" | ~/.claude/ecologits-bar.sh\033[0m\n'
+printf '    ECOLOGITS_LINE=$(printf '\''%%s'\'' "$input" | ~/.claude/ecologits-bar.sh)\n'
+printf '    echo -e "${ECOLOGITS_LINE}"\n'
 echo
 ok "Done. Open a new Claude Code session (or wait for the next render)."

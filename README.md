@@ -17,8 +17,8 @@ your existing status line… | 🔥 0.21 kgCO₂eq | 💧 3.1 L | ⚡️ 0.4 kWh
 The impact grows live as you use Claude Code. Units auto-scale
 (mWh → Wh → kWh energy, mg → g → kg CO₂eq, mL → L water) so the numbers stay
 readable from the first token onward. Before the first response the metrics
-read `0`. Want the model name shown too? Set
-[`ECOLOGITS_MODEL_LABEL`](#other-settings) to get `🤖 claude-opus-4-6 | 🔥 …`.
+read `0`. Want the model name shown too? Add `model` to
+[`ECOLOGITS_METRICS`](#output--metrics) to get `🤖 opus-4-6 | 🔥 …`.
 
 ## Why a snippet?
 
@@ -164,11 +164,19 @@ claude-haiku-4-5
 
 E.g. `ECOLOGITS_METRICS="energy gwp wcf adpe pe"` shows all five.
 
+You can also place one context key anywhere in the list:
+
+| key      | emoji | shows                                                            |
+| -------- | :---: | --------------------------------------------------------------- |
+| `model`  |  🤖   | The model being estimated (resolved id in auto mode, e.g. `opus-4-6`; the `claude-` prefix is dropped) |
+
+Put it first to label the line: `ECOLOGITS_METRICS="model gwp wcf energy"` →
+`🤖 opus-4-6 | 🔥 … | 💧 … | ⚡️ …`.
+
 ### Other settings
 
 | Variable          | Default                                          | Description                                   |
 | ----------------- | ------------------------------------------------ | --------------------------------------------- |
-| `ECOLOGITS_MODEL_LABEL` | _(empty → hidden)_                         | Text prepended before the metrics. Empty by default, so the line starts at the metrics. Set e.g. `🤖 $ECOLOGITS_MODEL` to show the estimated model; a ` \| ` separator is added automatically |
 | `ECOLOGITS_ZONE`  | `WOR`                                            | Electricity-mix zone for the server location — where the data center sits (ISO-3166 alpha-3, e.g. `USA`, `FRA`) |
 | `ECOLOGITS_API`   | `https://api.ecologits.ai/v1beta/estimations`    | Estimations endpoint (point to your own deployment if you self-host) |
 
