@@ -41,17 +41,20 @@
 #   adpe     ⛏️    Mineral & metal resource depletion     µg/mg/g Sbeq
 #   pe       🛢️    Total primary energy consumed          J/kJ/MJ
 #
+# Plus one context key (not an impact) you can place anywhere in the list:
+#
+#   key     emoji  meaning
+#   ------  -----  -------------------------------------------------------------
+#   model    🤖    The model being estimated. In auto mode this is the resolved
+#                  id (e.g. opus-4-8), not the word "auto". The "claude-" prefix
+#                  is dropped for brevity.
+#
+# Metrics render left to right, so reorder/hide each by editing this list. Put
+# "model" first to label the line:
+#     : "${ECOLOGITS_METRICS:=model gwp wcf energy}"  → 🤖 opus-4-8 | 🔥 … | …
+#
 # Default shows greenhouse gas, water, and energy:
 : "${ECOLOGITS_METRICS:=gwp wcf energy}"
-
-# Optional label shown BEFORE the metrics (e.g. which model is being estimated).
-# Empty by default → nothing is shown, the line starts straight at the metrics:
-#     🔥 4.2 gCO₂eq | 💧 43 mL | ⚡️ 8.4 Wh
-# Set it to any text to prepend it (a " | " separator is added automatically).
-# Use the token %model% to show the model actually estimated — in auto mode this
-# is the resolved id (e.g. claude-opus-4-8), not the word "auto":
-#     : "${ECOLOGITS_MODEL_LABEL:=🤖 %model%}"   → 🤖 claude-opus-4-8 | 🔥 …
-: "${ECOLOGITS_MODEL_LABEL:=}"
 
 # ── ADVANCED ───────────────────────────────────────────────────────────────
 # Override the estimations endpoint (e.g. a self-hosted EcoLogits deployment).
