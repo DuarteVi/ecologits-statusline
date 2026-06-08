@@ -10,13 +10,20 @@
 # variable (if you set one) takes precedence over the value written here.
 
 # ── INPUT — which Claude model to estimate ─────────────────────────────────
-# Impact depends on the model, so pick the one you actually use.
-# Valid values come from the public endpoint (friendly aliases):
+# Impact depends on the model. Leave this as "auto" (the default) to estimate
+# against whatever model the session is currently using — it tracks live when
+# you switch models in Claude, and re-estimates on the fly. An unknown id falls
+# back to the latest known model of the same family (opus/sonnet/haiku), so a
+# brand-new model still gives a sensible figure.
+#
+# Or pin a specific model. Valid values come from the public endpoint
+# (friendly aliases):
 #     https://api.ecologits.ai/v1beta/models/anthropic
-#   claude-opus-4-6    claude-opus-4-5    claude-opus-4-1    claude-opus-4-0
+#   claude-opus-4-8    claude-opus-4-7    claude-opus-4-6    claude-opus-4-5
+#   claude-opus-4-1    claude-opus-4-0
 #   claude-sonnet-4-6  claude-sonnet-4-5  claude-sonnet-4-0
 #   claude-haiku-4-5
-: "${ECOLOGITS_MODEL:=claude-opus-4-6}"
+: "${ECOLOGITS_MODEL:=auto}"
 
 # Electricity-mix zone for the server location (ISO-3166 alpha-3): where the
 # data center running the model sits, since the local power mix drives its
@@ -41,8 +48,9 @@
 # Empty by default → nothing is shown, the line starts straight at the metrics:
 #     🔥 4.2 gCO₂eq | 💧 43 mL | ⚡️ 8.4 Wh
 # Set it to any text to prepend it (a " | " separator is added automatically).
-# You can interpolate the model with $ECOLOGITS_MODEL, e.g.:
-#     : "${ECOLOGITS_MODEL_LABEL:=🤖 $ECOLOGITS_MODEL}"   → 🤖 claude-opus-4-6 | 🔥 …
+# Use the token %model% to show the model actually estimated — in auto mode this
+# is the resolved id (e.g. claude-opus-4-8), not the word "auto":
+#     : "${ECOLOGITS_MODEL_LABEL:=🤖 %model%}"   → 🤖 claude-opus-4-8 | 🔥 …
 : "${ECOLOGITS_MODEL_LABEL:=}"
 
 # ── ADVANCED ───────────────────────────────────────────────────────────────
