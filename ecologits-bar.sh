@@ -18,7 +18,8 @@
 #
 # Configuration: edit ~/.claude/ecologits.config.sh (sourced below). Each value
 # can also be overridden by an exported environment variable of the same name:
-#   ECOLOGITS_MODEL     model sent to the API   (default: claude-opus-4-6)
+#   ECOLOGITS_MODEL     model sent to the API, or "auto" to track the session's
+#                       current model   (default: auto)
 #   ECOLOGITS_ZONE      electricity-mix zone for the server location (default: WOR)
 #   ECOLOGITS_METRICS   impacts to display      (default: "gwp wcf energy")
 #   ECOLOGITS_MODEL_LABEL  prefix before metrics (default: empty = hidden)
@@ -49,14 +50,61 @@ fi
 
 # ---- EcoLogits environmental-impact counter --------------------------------
 ECO_API="${ECOLOGITS_API:-https://api.ecologits.ai/v1beta/estimations}"
-ECO_MODEL="${ECOLOGITS_MODEL:-claude-opus-4-6}"
+ECO_MODEL="${ECOLOGITS_MODEL:-auto}"
 ECO_ZONE="${ECOLOGITS_ZONE:-WOR}"
+
+# ---- Auto model resolution -------------------------------------------------
+# When ECOLOGITS_MODEL is "auto", estimate against the model the session is
+# actually using (the `.model.id` Claude Code sends on stdin) instead of a fixed
+# one. Resolution is synchronous and offline — no extra network call — so it can
+# go stale, but the family fallback keeps a stale guess in the right ballpark
+# (a brand-new opus estimates as the latest known opus, never as a haiku).
+#
+#   KNOWN_SET     model ids the EcoLogits API accepts (alias forms; dated and
+#                 [1m] variants normalize down to these). Update when the API at
+#                 https://api.ecologits.ai/v1beta/models/anthropic gains models.
+#   FAMILY_LATEST newest known id per family, used when an id isn't in KNOWN_SET.
+ECO_KNOWN_SET="claude-opus-4-8 claude-opus-4-7 claude-opus-4-6 claude-opus-4-5 claude-opus-4-1 claude-opus-4-0 claude-sonnet-4-6 claude-sonnet-4-5 claude-sonnet-4-0 claude-haiku-4-5"
+eco_family_latest() { case "$1" in
+  opus)   echo "claude-opus-4-8";;
+  sonnet) echo "claude-sonnet-4-6";;
+  haiku)  echo "claude-haiku-4-5";;
+esac; }
+
+if [ "$ECO_MODEL" = "auto" ]; then
+  RAW_MODEL=$(printf '%s' "$input" | jq -r '.model.id // empty' 2>/dev/null)
+  # Normalize: lowercase, strip a trailing [..] context-window variant (e.g.
+  # "[1m]") and a trailing -YYYYMMDD date, leaving the API alias form.
+  NORM_MODEL=$(printf '%s' "$RAW_MODEL" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed -E 's/\[[^]]*\]$//; s/-[0-9]{8}$//')
+  RESOLVED=""
+  for m in $ECO_KNOWN_SET; do
+    [ "$m" = "$NORM_MODEL" ] && { RESOLVED="$m"; break; }
+  done
+  if [ -z "$RESOLVED" ]; then
+    case "$NORM_MODEL" in
+      *opus*)   RESOLVED=$(eco_family_latest opus);;
+      *sonnet*) RESOLVED=$(eco_family_latest sonnet);;
+      *haiku*)  RESOLVED=$(eco_family_latest haiku);;
+    esac
+  fi
+  # Unrecognizable id (no family match) → fall back to the configured default.
+  ECO_MODEL="${RESOLVED:-claude-opus-4-6}"
+  # Expose the resolved id so ECOLOGITS_MODEL_LABEL can display it.
+  ECOLOGITS_MODEL="$ECO_MODEL"
+fi
 ECO_METRICS="${ECOLOGITS_METRICS:-gwp wcf energy}"
 # Optional prefix shown before the metrics (hidden by default). Set
-# ECOLOGITS_MODEL_LABEL in the config to display e.g. "🤖 $ECOLOGITS_MODEL".
+# ECOLOGITS_MODEL_LABEL in the config to display e.g. "🤖 %model%". The literal
+# token %model% is replaced here, AFTER auto-resolution, so it shows the model
+# actually estimated (resolved id in auto mode) rather than the word "auto".
+# (A brace-free token is used on purpose: "{...}" collides with the ${VAR:=...}
+# brace parsing in the config file.)
 ECO_LABEL="${ECOLOGITS_MODEL_LABEL:-}"
+ECO_LABEL="${ECO_LABEL//%model%/$ECO_MODEL}"
 ECO_DIR="$HOME/.claude/ecologits-cache"
-# Cache holds: "<tokens> <gwp_kg> <wcf_L> <energy_kWh> <adpe_kg> <pe_MJ>"
+# Cache holds: "<tokens> <model> <gwp_kg> <wcf_L> <energy_kWh> <adpe_kg> <pe_MJ>"
 ECO_CACHE="$ECO_DIR/$SESSION.json"
 ECO_LOCK="$ECO_DIR/$SESSION.inflight"
 mkdir -p "$ECO_DIR" 2>/dev/null
@@ -69,27 +117,30 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
 fi
 
 # Read cached impact values, if any.
-CACHED_TOKENS=-1; GWP=""; WCF=""; ENERGY=""; ADPE=""; PE=""
+CACHED_TOKENS=-1; CACHED_MODEL=""; GWP=""; WCF=""; ENERGY=""; ADPE=""; PE=""
 if [ -f "$ECO_CACHE" ]; then
-  read -r CACHED_TOKENS GWP WCF ENERGY ADPE PE < "$ECO_CACHE" 2>/dev/null
+  read -r CACHED_TOKENS CACHED_MODEL GWP WCF ENERGY ADPE PE < "$ECO_CACHE" 2>/dev/null
   [ -z "$CACHED_TOKENS" ] && CACHED_TOKENS=-1
 fi
 
-# Refresh in the background when output tokens have grown, or when the cache is
-# missing any metric (e.g. written by an older version), and not when a fetch
-# for this exact token count is already in flight. No tokens / idle = no API
-# call. The status line never blocks on the network.
+# Refresh in the background when output tokens have grown, when the resolved
+# model changed (auto mode: switching model mid-session must re-estimate even if
+# the token count is momentarily unchanged), or when the cache is missing any
+# metric (e.g. written by an older version) — and not when a fetch for this exact
+# token+model is already in flight. No tokens / idle = no API call. The status
+# line never blocks on the network.
 NEED_REFRESH=0
 [ "$TOKENS" != "$CACHED_TOKENS" ] && NEED_REFRESH=1
+[ "$ECO_MODEL" != "$CACHED_MODEL" ] && NEED_REFRESH=1
 for v in "$GWP" "$WCF" "$ENERGY" "$ADPE" "$PE"; do
   [ -z "$v" ] && NEED_REFRESH=1
 done
 if [ "$TOKENS" -gt 0 ] && [ "$NEED_REFRESH" -eq 1 ]; then
   INFLIGHT=""
   [ -f "$ECO_LOCK" ] && INFLIGHT=$(cat "$ECO_LOCK" 2>/dev/null)
-  if [ "$INFLIGHT" != "$TOKENS" ]; then
+  if [ "$INFLIGHT" != "$TOKENS $ECO_MODEL" ]; then
     (
-      echo "$TOKENS" > "$ECO_LOCK"
+      echo "$TOKENS $ECO_MODEL" > "$ECO_LOCK"
       RESP=$(curl -s --max-time 8 -X POST "$ECO_API" \
         -H "Content-Type: application/json" \
         -d "{\"provider\":\"anthropic\",\"model_name\":\"$ECO_MODEL\",\"output_token_count\":$TOKENS,\"electricity_mix_zone\":\"$ECO_ZONE\"}")
@@ -101,7 +152,7 @@ if [ "$TOKENS" -gt 0 ] && [ "$NEED_REFRESH" -eq 1 ]; then
       # Only overwrite the cache on a valid response, so a failed/offline
       # refresh keeps the last-known value instead of blanking it.
       if [ -n "$LINE" ]; then
-        echo "$TOKENS $LINE" > "$ECO_CACHE.tmp" && mv "$ECO_CACHE.tmp" "$ECO_CACHE"
+        echo "$TOKENS $ECO_MODEL $LINE" > "$ECO_CACHE.tmp" && mv "$ECO_CACHE.tmp" "$ECO_CACHE"
       fi
       rm -f "$ECO_LOCK"
     ) >/dev/null 2>&1 &
