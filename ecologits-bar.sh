@@ -155,6 +155,31 @@ if [ "${#SUM_FILES[@]}" -gt 0 ]; then
       END { printf "%.12g %.12g %.12g %.12g %.12g", g, w, e, a, p }')
 fi
 
+# ---- Monotonic per-session accumulator -------------------------------------
+# The displayed total must never go DOWN within one discussion. The transcript
+# is append-only (so requests never disappear) and each request's estimate is
+# immutable, so the sum is already monotonic in practice — this is a belt-and-
+# suspenders floor that also survives the 30-day cache prune deleting a file
+# still referenced by a long, resumed session, or a mid-session model/zone
+# change pointing at a cheaper estimate.
+#
+# Keyed on session_id: `/clear` starts a NEW session_id → a fresh floor (resets
+# to ~0); `/compact` keeps the SAME session_id → the floor persists and keeps
+# climbing. Confirmed against the Claude Code docs.
+ECO_ACC="$ECO_DIR/$SESSION.acc"
+if [ -s "$ECO_ACC" ]; then
+  read -r AGWP AWCF AENERGY AADPE APE < "$ECO_ACC" 2>/dev/null
+  read -r GWP WCF ENERGY ADPE PE < <(awk \
+    -v g="$GWP" -v w="$WCF" -v e="$ENERGY" -v a="$ADPE" -v p="$PE" \
+    -v ag="${AGWP:-0}" -v aw="${AWCF:-0}" -v ae="${AENERGY:-0}" -v aa="${AADPE:-0}" -v ap="${APE:-0}" \
+    'BEGIN { printf "%.12g %.12g %.12g %.12g %.12g",
+      (g>ag?g:ag), (w>aw?w:aw), (e>ae?e:ae), (a>aa?a:aa), (p>ap?p:ap) }')
+fi
+# Persist the (possibly raised) floor. Atomic write so a concurrent render never
+# reads a half-written file.
+printf '%s %s %s %s %s\n' "$GWP" "$WCF" "$ENERGY" "$ADPE" "$PE" > "$ECO_ACC.tmp" 2>/dev/null \
+  && mv "$ECO_ACC.tmp" "$ECO_ACC" 2>/dev/null
+
 # ---- Background backfill for the requests not yet estimated -----------------
 # Non-blocking: the line shows the sum of what is cached now (with a trailing "…"
 # while estimation is in flight) and converges over the next few renders. A
@@ -196,8 +221,10 @@ if [ "${#PENDING[@]}" -gt 0 ]; then
         [ $((n % 4)) -eq 0 ] && wait
       done
       wait
-      # Opportunistic housekeeping: forget per-request entries older than 30 days.
+      # Opportunistic housekeeping: forget per-request entries and stale session
+      # accumulators older than 30 days.
       find "$ECO_REQ_DIR" -type f -mtime +30 -delete 2>/dev/null
+      find "$ECO_DIR" -maxdepth 1 -name '*.acc' -mtime +30 -delete 2>/dev/null
       rm -f "$ECO_LOCK"
     ) >/dev/null 2>&1 &
   fi

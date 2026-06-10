@@ -119,6 +119,12 @@ chmod +x ~/.claude/statusline.sh
 - Shows the **midpoint** of the returned `energy` (kWh), `gwp` (CO₂eq) and `wcf`
   (water) ranges. In `auto` mode each request is attributed to the model that
   actually generated it, so mixed-model and subagent sessions are accurate.
+- **Monotonic within a discussion:** the total never goes down during a session.
+  A per-session floor (`<session_id>.acc`) keeps the highest value reached, so it
+  survives `/compact` (same session, append-only transcript) and only resets on
+  `/clear` (a new session). This is why the old version's figures could *drop*
+  mid-conversation — it recomputed everything against the current model, so
+  switching to a lighter model lowered the whole total; that no longer happens.
 - **Never blocks your terminal:** each render prints instantly from a per-request
   cache in `~/.claude/ecologits-cache/req/`. Requests not yet estimated are
   filled in by a bounded background job (a trailing `…` marks a partial sum until
