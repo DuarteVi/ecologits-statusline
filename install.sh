@@ -20,10 +20,21 @@ REPO="${REPO:-DuarteVi/ecologits-statusline}"
 REF="${REF:-main}"
 RAW_BASE="https://raw.githubusercontent.com/$REPO/$REF"
 
-# When run from a local clone, BASH_SOURCE points at the real file and the
-# source files sit next to it. When piped from curl, BASH_SOURCE is a pipe
-# (no sibling files) — we detect that and download instead.
-SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" 2>/dev/null && pwd || echo "")"
+# Decide where source files come from. When run from a local clone, the script
+# is a real file and the sources sit next to it. When piped from curl
+# (`curl ... | bash`) there is no script file, so we must download.
+#
+# We must NOT fall back to the current working directory: dirname '.' is '.',
+# and if the user happens to run the pipe from a directory that contains files
+# named like our sources, we'd silently copy those stale local files instead of
+# downloading the pinned $REF. So we only treat it as a clone when BASH_SOURCE
+# points at a file that actually exists. The ":-" keeps this safe under `set -u`
+# even when BASH_SOURCE is unset (the piped case).
+SRC_DIR=""
+_self="${BASH_SOURCE[0]:-}"
+if [ -n "$_self" ] && [ -f "$_self" ]; then
+  SRC_DIR="$(cd "$(dirname "$_self")" && pwd)"
+fi
 CLAUDE_DIR="$HOME/.claude"
 DEST="$CLAUDE_DIR/ecologits-bar.sh"
 CONFIG_DEST="$CLAUDE_DIR/ecologits.config.sh"
@@ -32,6 +43,22 @@ SETTINGS="$CLAUDE_DIR/settings.json"
 info() { printf '\033[36m▸ %s\033[0m\n' "$1"; }
 ok()   { printf '\033[32m✓ %s\033[0m\n' "$1"; }
 err()  { printf '\033[31m✗ %s\033[0m\n' "$1" >&2; }
+
+# Sanity-check a fetched shell file before we trust it: it must be non-empty and
+# parse as valid bash. This catches truncated copies and the occasional stale or
+# corrupt response from GitHub's raw CDN — instead of installing a broken script
+# and only failing cryptically later (e.g. an "unbound variable" mid-run).
+validate_source() {
+  local name="$1" dest="$2"
+  if [ ! -s "$dest" ]; then
+    err "$name came back empty — likely a network or CDN hiccup. Please retry."
+    exit 1
+  fi
+  if ! bash -n "$dest" 2>/dev/null; then
+    err "$name failed a syntax check — got a corrupt/partial copy. Please retry."
+    exit 1
+  fi
+}
 
 # Put a source file at $2: copy it from the local clone if present, otherwise
 # download it from the repo. Used by both the clone and curl|bash flows.
@@ -43,6 +70,7 @@ fetch_source() {
     curl -fsSL "$RAW_BASE/$name" -o "$dest" \
       || { err "Failed to download $name from $RAW_BASE"; exit 1; }
   fi
+  validate_source "$name" "$dest"
 }
 
 # The exact block users paste into their own statusline.sh. Inline model:
