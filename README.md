@@ -37,10 +37,30 @@ nothing of yours changes except the two lines you paste.
 ## Install
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/DuarteVi/ecologits-statusline/main/install.sh | bash
+```
+
+That's the quickest path: it downloads `ecologits-bar.sh` and a config file into
+`~/.claude`, then prints the snippet to paste. Prefer to pin a released version
+(recommended)?
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DuarteVi/ecologits-statusline/main/install.sh | REF=v1.0.0 bash
+```
+
+> Piping a remote script to `bash` runs code you haven't read. If you'd rather
+> review it first: `curl -fsSL …/install.sh -o install.sh && less install.sh && bash install.sh`.
+
+<details>
+<summary>Or install from a local clone</summary>
+
+```bash
 git clone https://github.com/DuarteVi/ecologits-statusline.git
 cd ecologits-statusline
 ./install.sh
 ```
+
+</details>
 
 The installer is **non-destructive** — it never edits your `settings.json` or any
 `statusline.sh`. It copies `ecologits-bar.sh` and a config file into `~/.claude`,
@@ -197,6 +217,14 @@ Put it first to label the line: `ECOLOGITS_METRICS="model gwp wcf energy"` →
   generation). Thinking/reasoning tokens are included, since they're generated.
 
 ## Uninstall
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DuarteVi/ecologits-statusline/main/uninstall.sh | bash
+# add --purge to also remove ecologits.config.sh:
+curl -fsSL https://raw.githubusercontent.com/DuarteVi/ecologits-statusline/main/uninstall.sh | bash -s -- --purge
+```
+
+Or from a local clone:
 
 ```bash
 ./uninstall.sh          # remove the bar + cache, keep your config

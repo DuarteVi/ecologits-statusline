@@ -13,7 +13,17 @@
 #
 set -euo pipefail
 
-SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Where to fetch source files when this installer is run remotely
+# (e.g. `curl -fsSL .../install.sh | bash`). Override REF to pin a tag:
+#   curl -fsSL .../install.sh | REF=v1.0.0 bash
+REPO="${REPO:-DuarteVi/ecologits-statusline}"
+REF="${REF:-main}"
+RAW_BASE="https://raw.githubusercontent.com/$REPO/$REF"
+
+# When run from a local clone, BASH_SOURCE points at the real file and the
+# source files sit next to it. When piped from curl, BASH_SOURCE is a pipe
+# (no sibling files) — we detect that and download instead.
+SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" 2>/dev/null && pwd || echo "")"
 CLAUDE_DIR="$HOME/.claude"
 DEST="$CLAUDE_DIR/ecologits-bar.sh"
 CONFIG_DEST="$CLAUDE_DIR/ecologits.config.sh"
@@ -22,6 +32,18 @@ SETTINGS="$CLAUDE_DIR/settings.json"
 info() { printf '\033[36m▸ %s\033[0m\n' "$1"; }
 ok()   { printf '\033[32m✓ %s\033[0m\n' "$1"; }
 err()  { printf '\033[31m✗ %s\033[0m\n' "$1" >&2; }
+
+# Put a source file at $2: copy it from the local clone if present, otherwise
+# download it from the repo. Used by both the clone and curl|bash flows.
+fetch_source() {
+  local name="$1" dest="$2"
+  if [ -n "$SRC_DIR" ] && [ -f "$SRC_DIR/$name" ]; then
+    cp "$SRC_DIR/$name" "$dest"
+  else
+    curl -fsSL "$RAW_BASE/$name" -o "$dest" \
+      || { err "Failed to download $name from $RAW_BASE"; exit 1; }
+  fi
+}
 
 # The exact block users paste into their own statusline.sh. Inline model:
 # capture the bar into a variable, then drop ${ECOLOGITS_LINE} into your line.
@@ -47,14 +69,14 @@ ok "Dependencies present (jq, curl)"
 
 # 2. Install the bar script + config ----------------------------------------
 mkdir -p "$CLAUDE_DIR/ecologits-cache"
-cp "$SRC_DIR/ecologits-bar.sh" "$DEST"
+fetch_source "ecologits-bar.sh" "$DEST"
 chmod +x "$DEST"
 ok "Installed impact bar -> $DEST"
 
 if [ -f "$CONFIG_DEST" ]; then
   info "Keeping your existing config -> $CONFIG_DEST"
 else
-  cp "$SRC_DIR/ecologits.config.sh" "$CONFIG_DEST"
+  fetch_source "ecologits.config.sh" "$CONFIG_DEST"
   ok "Installed config -> $CONFIG_DEST (edit to pick model & metrics)"
 fi
 
