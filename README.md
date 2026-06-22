@@ -40,14 +40,6 @@ nothing of yours changes except the two lines you paste.
 curl -fsSL https://raw.githubusercontent.com/DuarteVi/ecologits-statusline/main/install.sh | bash
 ```
 
-That's the quickest path: it downloads `ecologits-bar.sh` and a config file into
-`~/.claude`, then prints the snippet to paste. Prefer to pin a released version
-(recommended)?
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/DuarteVi/ecologits-statusline/main/install.sh | REF=v1.0.0 bash
-```
-
 > Piping a remote script to `bash` runs code you haven't read. If you'd rather
 > review it first: `curl -fsSL …/install.sh -o install.sh && less install.sh && bash install.sh`.
 
@@ -63,8 +55,8 @@ cd ecologits-statusline
 </details>
 
 The installer is **non-destructive** — it never edits your `settings.json` or any
-`statusline.sh`. It copies `ecologits-bar.sh` and a config file into `~/.claude`,
-then prints the snippet to paste.
+`statusline.sh`. It installs `ecologits-bar.sh` and a config file into
+`~/.claude`, then prints the snippet to paste.
 
 ### Add the bar to your status line
 
