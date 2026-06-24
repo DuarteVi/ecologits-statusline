@@ -124,15 +124,29 @@ chmod +x ~/.claude/statusline.sh
 
 ## How it works
 
-- Sums `output_tokens` across the **current session's** transcript (resets each
-  session).
-- Sends that total to `POST /v1beta/estimations` on the public EcoLogits API and
-  shows the **midpoint** of the returned `energy` (kWh), `gwp` (CO₂eq) and `wcf`
-  (water) ranges.
-- **Never blocks your terminal:** each render prints instantly from a small cache
-  in `~/.claude/ecologits-cache/`. A refresh runs in the background **only when
-  your token count grows** — idle sessions make zero API calls. If a refresh
-  fails (offline, etc.) the last-known value is kept, never blanked.
+- Estimates **each Claude HTTP request separately** — using that request's own
+  model and generated tokens — via `POST /v1beta/estimations` on the public
+  EcoLogits API, then **sums** the results across the **current session's**
+  transcript (resets each session, e.g. on `/clear`).
+- Shows the **midpoint** of the returned `energy` (kWh), `gwp` (CO₂eq) and `wcf`
+  (water) ranges. In `auto` mode each request is attributed to the model that
+  actually generated it, so mixed-model and subagent sessions are accurate.
+- **Monotonic within a discussion:** the total never goes down during a session.
+  A per-session floor (`<session_id>.acc`) keeps the highest value reached, so it
+  survives `/compact` (same session, append-only transcript) and only resets on
+  `/clear` (a new session). This is why the old version's figures could *drop*
+  mid-conversation — it recomputed everything against the current model, so
+  switching to a lighter model lowered the whole total; that no longer happens.
+- **Never blocks your terminal:** each render prints instantly from a per-request
+  cache in `~/.claude/ecologits-cache/req/`. Requests not yet estimated are
+  filled in by a bounded background job (a trailing `…` marks a partial sum until
+  it converges); idle sessions make zero API calls. If a request fails (offline,
+  etc.) it stays pending and retries on a later render, never caching a blank.
+
+> **Note:** because each request is estimated on its own, totals read somewhat
+> **higher** than a single aggregate estimate of the same tokens — separate
+> inferences carry real per-request overhead. This is intended and more
+> physically accurate, not a bug.
 
 ## Configuration
 
@@ -141,8 +155,8 @@ things most people change: the **model** (input) and **which impacts to show**
 (output).
 
 ```bash
-# INPUT — the Claude model to estimate
-: "${ECOLOGITS_MODEL:=claude-opus-4-6}"
+# INPUT — the Claude model to estimate ("auto" = per-request model)
+: "${ECOLOGITS_MODEL:=auto}"
 
 # OUTPUT — impacts to display, in order (space-separated)
 : "${ECOLOGITS_METRICS:=gwp wcf energy}"

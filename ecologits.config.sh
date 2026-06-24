@@ -11,12 +11,14 @@
 
 # ── INPUT — which Claude model to estimate ─────────────────────────────────
 # Impact depends on the model. Leave this as "auto" (the default) to estimate
-# against whatever model the session is currently using — it tracks live when
-# you switch models in Claude, and re-estimates on the fly. An unknown id falls
-# back to the latest known model of the same family (opus/sonnet/haiku), so a
-# brand-new model still gives a sensible figure.
+# EACH request against the model that actually generated it (the per-request
+# model recorded in the transcript) — so switching models mid-session, and
+# subagents running a different model, are all attributed correctly. An unknown
+# id falls back to the latest known model of the same family (opus/sonnet/haiku),
+# so a brand-new model still gives a sensible figure.
 #
-# Or pin a specific model. Valid values come from the public endpoint
+# Or pin a specific model to force EVERY request to it. Valid values come from
+# the public endpoint
 # (friendly aliases):
 #     https://api.ecologits.ai/v1beta/models/anthropic
 #   claude-opus-4-8    claude-opus-4-7    claude-opus-4-6    claude-opus-4-5

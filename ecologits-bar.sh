@@ -3,8 +3,10 @@
 # EcoLogits impact bar for Claude Code  (drop-in component)
 #
 # This prints ONE line estimating the environmental impact — energy, greenhouse
-# gas, freshwater — of the current session's generated tokens, via the public
-# EcoLogits API. It is meant to be called from inside YOUR OWN statusline.sh,
+# gas, freshwater — of the current session, via the public EcoLogits API. It
+# estimates EACH Claude HTTP request separately (using that request's own model
+# and generated tokens) and displays the SUM across the current transcript. It
+# is meant to be called from inside YOUR OWN statusline.sh,
 # which keeps full ownership of its output. Add this after your line prints:
 #
 #     printf '%s' "$input" | ~/.claude/ecologits-bar.sh
@@ -53,12 +55,13 @@ ECO_API="${ECOLOGITS_API:-https://api.ecologits.ai/v1beta/estimations}"
 ECO_MODEL="${ECOLOGITS_MODEL:-auto}"
 ECO_ZONE="${ECOLOGITS_ZONE:-WOR}"
 
-# ---- Auto model resolution -------------------------------------------------
-# When ECOLOGITS_MODEL is "auto", estimate against the model the session is
-# actually using (the `.model.id` Claude Code sends on stdin) instead of a fixed
-# one. Resolution is synchronous and offline — no extra network call — so it can
-# go stale, but the family fallback keeps a stale guess in the right ballpark
-# (a brand-new opus estimates as the latest known opus, never as a haiku).
+# ---- Per-request model resolution ------------------------------------------
+# Every Claude HTTP request is estimated against the model that actually
+# generated it (the per-request `.message.model` in the transcript), resolved
+# offline to an API-accepted alias. The family fallback keeps an unknown id in
+# the right ballpark (a brand-new opus estimates as the latest known opus, never
+# as a haiku). When ECOLOGITS_MODEL is a specific id (not "auto") it PINS every
+# request to that model instead.
 #
 #   KNOWN_SET     model ids the EcoLogits API accepts (alias forms; dated and
 #                 [1m] variants normalize down to these). Update when the API at
@@ -71,85 +74,165 @@ eco_family_latest() { case "$1" in
   haiku)  echo "claude-haiku-4-5";;
 esac; }
 
-if [ "$ECO_MODEL" = "auto" ]; then
-  RAW_MODEL=$(printf '%s' "$input" | jq -r '.model.id // empty' 2>/dev/null)
+# Resolve a raw model id ("claude-opus-4-8[1m]", "Claude-Sonnet-4-6-20250101",
+# …) to an API alias. Unrecognizable ids fall back to the configured default.
+eco_resolve_model() {
   # Normalize: lowercase, strip a trailing [..] context-window variant (e.g.
   # "[1m]") and a trailing -YYYYMMDD date, leaving the API alias form.
-  NORM_MODEL=$(printf '%s' "$RAW_MODEL" \
+  norm=$(printf '%s' "$1" \
     | tr '[:upper:]' '[:lower:]' \
     | sed -E 's/\[[^]]*\]$//; s/-[0-9]{8}$//')
-  RESOLVED=""
   for m in $ECO_KNOWN_SET; do
-    [ "$m" = "$NORM_MODEL" ] && { RESOLVED="$m"; break; }
+    [ "$m" = "$norm" ] && { echo "$m"; return; }
   done
-  if [ -z "$RESOLVED" ]; then
-    case "$NORM_MODEL" in
-      *opus*)   RESOLVED=$(eco_family_latest opus);;
-      *sonnet*) RESOLVED=$(eco_family_latest sonnet);;
-      *haiku*)  RESOLVED=$(eco_family_latest haiku);;
-    esac
-  fi
-  # Unrecognizable id (no family match) → fall back to the configured default.
-  ECO_MODEL="${RESOLVED:-claude-opus-4-6}"
-  # Expose the resolved id so the "model" metric can display it.
-  ECOLOGITS_MODEL="$ECO_MODEL"
-fi
+  case "$norm" in
+    *opus*)   eco_family_latest opus;;
+    *sonnet*) eco_family_latest sonnet;;
+    *haiku*)  eco_family_latest haiku;;
+    *)        eco_family_latest opus;; # Default
+  esac
+}
+
+# "auto" (default) → resolve each request's own model; otherwise pin to ECO_MODEL.
+ECO_PIN=""
+[ "$ECO_MODEL" != "auto" ] && ECO_PIN="$ECO_MODEL"
+
 ECO_METRICS="${ECOLOGITS_METRICS:-gwp wcf energy}"
 ECO_DIR="$HOME/.claude/ecologits-cache"
-# Cache holds: "<tokens> <model> <gwp_kg> <wcf_L> <energy_kWh> <adpe_kg> <pe_MJ>"
-ECO_CACHE="$ECO_DIR/$SESSION.json"
+# Global per-request memo. One file per (requestId, model, zone), holding the
+# midpoint impacts "<gwp_kg> <wcf_L> <energy_kWh> <adpe_kg> <pe_MJ>". A request's
+# impact is immutable, so this is a pure cache; changing the pinned model or zone
+# simply points at (and back-fills) a different file.
+ECO_REQ_DIR="$ECO_DIR/req"
 ECO_LOCK="$ECO_DIR/$SESSION.inflight"
-mkdir -p "$ECO_DIR" 2>/dev/null
+mkdir -p "$ECO_REQ_DIR" 2>/dev/null
+# Drop the previous design's per-session aggregate cache if it lingers.
+rm -f "$ECO_DIR/$SESSION.json" 2>/dev/null
 
-# Cumulative output tokens for this session (sum over the transcript).
-TOKENS=0
+# ---- Enumerate this session's Claude requests ------------------------------
+# One row per request (deduped by requestId — the transcript writes several
+# lines per message, all sharing the same immutable requestId). Rows stay in
+# chronological order, so the LAST row is the most recent request. Subagent
+# (sidechain) requests are included; they consume real energy.
+#   row = "<requestId>\t<model>\t<output_tokens>\t<durationMs|null>"
+REQ_ROWS=""
 if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
-  TOKENS=$(jq -n 'reduce inputs as $x (0; . + ($x.message.usage.output_tokens // 0))' < "$TRANSCRIPT" 2>/dev/null)
-  [ -z "$TOKENS" ] && TOKENS=0
+  REQ_ROWS=$(jq -rc '
+    select(.type=="assistant"
+           and (.requestId // "") != ""
+           and (.message.usage.output_tokens // 0) > 0)
+    | [.requestId, (.message.model // ""), (.message.usage.output_tokens), (.durationMs // "null")]
+    | @tsv' < "$TRANSCRIPT" 2>/dev/null | awk -F'\t' '!seen[$1]++')
 fi
 
-# Read cached impact values, if any.
-CACHED_TOKENS=-1; CACHED_MODEL=""; GWP=""; WCF=""; ENERGY=""; ADPE=""; PE=""
-if [ -f "$ECO_CACHE" ]; then
-  read -r CACHED_TOKENS CACHED_MODEL GWP WCF ENERGY ADPE PE < "$ECO_CACHE" 2>/dev/null
-  [ -z "$CACHED_TOKENS" ] && CACHED_TOKENS=-1
+# ---- Sum cached impacts; collect the requests still needing estimation ------
+GWP=0; WCF=0; ENERGY=0; ADPE=0; PE=0
+LAST_MODEL=""
+PENDING=()          # "<file>|<model>|<tokens>|<latency>" for the backfill job
+SUM_FILES=()        # cache files present, to sum
+if [ -n "$REQ_ROWS" ]; then
+  while IFS=$'\t' read -r reqid rawmodel tokens durms; do
+    [ -z "$reqid" ] && continue
+    if [ -n "$ECO_PIN" ]; then model="$ECO_PIN"; else model=$(eco_resolve_model "$rawmodel"); fi
+    LAST_MODEL="$model"
+    # durationMs → request_latency (seconds); omit when absent.
+    latency="null"
+    [ "$durms" != "null" ] && [ -n "$durms" ] && latency=$(awk -v d="$durms" 'BEGIN{printf "%.3f", d/1000}')
+    file="$ECO_REQ_DIR/${reqid}__${model}__${ECO_ZONE}"
+    if [ -s "$file" ]; then
+      SUM_FILES+=("$file")
+    else
+      PENDING+=("$file|$model|$tokens|$latency")
+    fi
+  done <<< "$REQ_ROWS"
 fi
 
-# Refresh in the background when output tokens have grown, when the resolved
-# model changed (auto mode: switching model mid-session must re-estimate even if
-# the token count is momentarily unchanged), or when the cache is missing any
-# metric (e.g. written by an older version) — and not when a fetch for this exact
-# token+model is already in flight. No tokens / idle = no API call. The status
-# line never blocks on the network.
-NEED_REFRESH=0
-[ "$TOKENS" != "$CACHED_TOKENS" ] && NEED_REFRESH=1
-[ "$ECO_MODEL" != "$CACHED_MODEL" ] && NEED_REFRESH=1
-for v in "$GWP" "$WCF" "$ENERGY" "$ADPE" "$PE"; do
-  [ -z "$v" ] && NEED_REFRESH=1
-done
-if [ "$TOKENS" -gt 0 ] && [ "$NEED_REFRESH" -eq 1 ]; then
+# Sum the five metrics across every cached request in one awk pass.
+if [ "${#SUM_FILES[@]}" -gt 0 ]; then
+  read -r GWP WCF ENERGY ADPE PE < <(
+    cat "${SUM_FILES[@]}" 2>/dev/null | awk '
+      { g+=$1; w+=$2; e+=$3; a+=$4; p+=$5 }
+      END { printf "%.12g %.12g %.12g %.12g %.12g", g, w, e, a, p }')
+fi
+
+# ---- Monotonic per-session accumulator -------------------------------------
+# The displayed total must never go DOWN within one discussion. The transcript
+# is append-only (so requests never disappear) and each request's estimate is
+# immutable, so the sum is already monotonic in practice — this is a belt-and-
+# suspenders floor that also survives the 30-day cache prune deleting a file
+# still referenced by a long, resumed session, or a mid-session model/zone
+# change pointing at a cheaper estimate.
+#
+# Keyed on session_id: `/clear` starts a NEW session_id → a fresh floor (resets
+# to ~0); `/compact` keeps the SAME session_id → the floor persists and keeps
+# climbing. Confirmed against the Claude Code docs.
+ECO_ACC="$ECO_DIR/$SESSION.acc"
+if [ -s "$ECO_ACC" ]; then
+  read -r AGWP AWCF AENERGY AADPE APE < "$ECO_ACC" 2>/dev/null
+  read -r GWP WCF ENERGY ADPE PE < <(awk \
+    -v g="$GWP" -v w="$WCF" -v e="$ENERGY" -v a="$ADPE" -v p="$PE" \
+    -v ag="${AGWP:-0}" -v aw="${AWCF:-0}" -v ae="${AENERGY:-0}" -v aa="${AADPE:-0}" -v ap="${APE:-0}" \
+    'BEGIN { printf "%.12g %.12g %.12g %.12g %.12g",
+      (g>ag?g:ag), (w>aw?w:aw), (e>ae?e:ae), (a>aa?a:aa), (p>ap?p:ap) }')
+fi
+# Persist the (possibly raised) floor. Atomic write so a concurrent render never
+# reads a half-written file.
+printf '%s %s %s %s %s\n' "$GWP" "$WCF" "$ENERGY" "$ADPE" "$PE" > "$ECO_ACC.tmp" 2>/dev/null \
+  && mv "$ECO_ACC.tmp" "$ECO_ACC" 2>/dev/null
+
+# ---- Background backfill for the requests not yet estimated -----------------
+# Non-blocking: the line shows the sum of what is cached now (with a trailing "…"
+# while estimation is in flight) and converges over the next few renders. A
+# per-session lock keyed to the pending set avoids double-spawning; a stale lock
+# (job died >2min ago) is ignored so backfill can never wedge.
+ECO_DISPLAY_PENDING=0
+if [ "${#PENDING[@]}" -gt 0 ]; then
+  ECO_DISPLAY_PENDING=1
+  SIG=$(printf '%s\n' "${PENDING[@]}" | sort | cksum | awk '{print $1}')
   INFLIGHT=""
   [ -f "$ECO_LOCK" ] && INFLIGHT=$(cat "$ECO_LOCK" 2>/dev/null)
-  if [ "$INFLIGHT" != "$TOKENS $ECO_MODEL" ]; then
+  STALE=0
+  [ -n "$(find "$ECO_LOCK" -mmin +2 2>/dev/null)" ] && STALE=1
+  if [ "$INFLIGHT" != "$SIG" ] || [ "$STALE" -eq 1 ]; then
     (
-      echo "$TOKENS $ECO_MODEL" > "$ECO_LOCK"
-      RESP=$(curl -s --max-time 8 -X POST "$ECO_API" \
-        -H "Content-Type: application/json" \
-        -d "{\"provider\":\"anthropic\",\"model_name\":\"$ECO_MODEL\",\"output_token_count\":$TOKENS,\"electricity_mix_zone\":\"$ECO_ZONE\"}")
-      LINE=$(echo "$RESP" | jq -r '
-        def mid(x): (x.min + x.max) / 2;
-        if .impacts.gwp.value then
-          "\(mid(.impacts.gwp.value)) \(mid(.impacts.wcf.value)) \(mid(.impacts.energy.value)) \(mid(.impacts.adpe.value)) \(mid(.impacts.pe.value))"
-        else empty end' 2>/dev/null)
-      # Only overwrite the cache on a valid response, so a failed/offline
-      # refresh keeps the last-known value instead of blanking it.
-      if [ -n "$LINE" ]; then
-        echo "$TOKENS $ECO_MODEL $LINE" > "$ECO_CACHE.tmp" && mv "$ECO_CACHE.tmp" "$ECO_CACHE"
-      fi
+      echo "$SIG" > "$ECO_LOCK"
+      n=0
+      for task in "${PENDING[@]}"; do
+        file="${task%%|*}"; rest="${task#*|}"
+        model="${rest%%|*}"; rest="${rest#*|}"
+        tokens="${rest%%|*}"; latency="${rest##*|}"
+        (
+          body="{\"provider\":\"anthropic\",\"model_name\":\"$model\",\"output_token_count\":$tokens,\"electricity_mix_zone\":\"$ECO_ZONE\""
+          [ "$latency" != "null" ] && body="$body,\"request_latency\":$latency"
+          body="$body}"
+          RESP=$(curl -s --max-time 8 -X POST "$ECO_API" \
+            -H "Content-Type: application/json" -d "$body")
+          LINE=$(echo "$RESP" | jq -r '
+            def mid(x): (x.min + x.max) / 2;
+            if .impacts.gwp.value then
+              "\(mid(.impacts.gwp.value)) \(mid(.impacts.wcf.value)) \(mid(.impacts.energy.value)) \(mid(.impacts.adpe.value)) \(mid(.impacts.pe.value))"
+            else empty end' 2>/dev/null)
+          # Only write on a valid response, so an offline request stays pending
+          # and retries on a later render rather than caching a blank.
+          [ -n "$LINE" ] && { echo "$LINE" > "$file.tmp" && mv "$file.tmp" "$file"; }
+        ) &
+        n=$((n + 1))
+        # Bound concurrency to 4 (portable: barrier every 4 launches).
+        [ $((n % 4)) -eq 0 ] && wait
+      done
+      wait
+      # Opportunistic housekeeping: forget per-request entries and stale session
+      # accumulators older than 30 days.
+      find "$ECO_REQ_DIR" -type f -mtime +30 -delete 2>/dev/null
+      find "$ECO_DIR" -maxdepth 1 -name '*.acc' -mtime +30 -delete 2>/dev/null
       rm -f "$ECO_LOCK"
     ) >/dev/null 2>&1 &
   fi
 fi
+
+# Resolved id shown by the "model" metric: the most recent request's model (or
+# the pin). The "claude-" prefix is dropped for brevity at render time.
+ECO_MODEL="${ECO_PIN:-${LAST_MODEL:-claude-opus-4-8}}"
 
 # Auto-scaling unit formatters (one per metric).
 fmt_gwp() {  # kgCO₂eq -> mg / g / kg
@@ -219,6 +302,10 @@ for key in "${SELECTED[@]}"; do
   piece="$(render_metric "$key")"
   if [ -z "$ECO_LINE" ]; then ECO_LINE="$piece"; else ECO_LINE="$ECO_LINE | $piece"; fi
 done
+
+# While some requests are still being estimated in the background, the sum is
+# partial — flag it with a trailing "…" so it isn't mistaken for the final total.
+[ "$ECO_DISPLAY_PENDING" -eq 1 ] && ECO_LINE="$ECO_LINE …"
 
 # ---- Render: one line, appended below whatever your status line printed -----
 printf '%b\n' "${GRAY}${ECO_LINE}${RESET}"
